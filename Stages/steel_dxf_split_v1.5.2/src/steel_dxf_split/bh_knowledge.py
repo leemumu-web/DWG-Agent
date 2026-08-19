@@ -86,7 +86,7 @@ class BHFlangeDevelopmentPolicy:
     enabled: bool = True
     profile_id: str = "project_tekla_bh_dxf_v1"
     derived_length_quantum_mm: float = 1.0
-    derived_length_rounding: str = "floor"
+    derived_length_rounding: str = "ceil"
     preserve_direct_projection: bool = True
     require_unique_cranked_candidate: bool = True
 

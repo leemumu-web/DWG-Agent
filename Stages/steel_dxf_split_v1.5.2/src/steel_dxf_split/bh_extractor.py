@@ -760,6 +760,64 @@ def _validated_direct_projection_rectangle(
     return candidate if decision.applied and not decision.lost_source_ids else None
 
 
+def _materialize_constant_height_flange_paths(
+    source: Polygon,
+    target_lengths: tuple[float, ...],
+    *,
+    flange_axis: str,
+    flange_width: float,
+    preserve_slanted_end: bool,
+) -> list[Polygon]:
+    """Develop two flange paths without erasing a source slanted end."""
+
+    coordinates = [(float(x), float(y)) for x, y in list(source.exterior.coords)[:-1]]
+    slanted_edges = [
+        (start, end)
+        for start, end in zip(coordinates, coordinates[1:] + coordinates[:1])
+        if abs(end[0] - start[0]) > 1e-6 and abs(end[1] - start[1]) > 1e-6
+    ]
+    if not preserve_slanted_end or not slanted_edges:
+        bounds = source.bounds
+        if flange_axis == "x":
+            return [
+                box(bounds[0], bounds[1], bounds[0] + target, bounds[1] + flange_width)
+                for target in target_lengths
+            ]
+        return [
+            box(bounds[0], bounds[1], bounds[0] + flange_width, bounds[1] + target)
+            for target in target_lengths
+        ]
+
+    minimum = source.bounds[0] if flange_axis == "x" else source.bounds[1]
+    maximum = source.bounds[2] if flange_axis == "x" else source.bounds[3]
+    terminal_values = [
+        point[0] if flange_axis == "x" else point[1]
+        for edge in slanted_edges
+        for point in edge
+    ]
+    slanted_at_max = sum(terminal_values) / len(terminal_values) > (minimum + maximum) / 2.0
+    terminal_limit = min(terminal_values) if slanted_at_max else max(terminal_values)
+    current_length = maximum - minimum
+    developed: list[Polygon] = []
+    for target in target_lengths:
+        delta = target - current_length
+        shifted: list[tuple[float, float]] = []
+        for x, y in coordinates:
+            value = x if flange_axis == "x" else y
+            move = value >= terminal_limit - 1e-6 if slanted_at_max else value <= terminal_limit + 1e-6
+            offset = delta if slanted_at_max else -delta
+            shifted.append(
+                (x + offset, y) if move and flange_axis == "x"
+                else (x, y + offset) if move
+                else (x, y)
+            )
+        polygon = Polygon(shifted)
+        if not polygon.is_valid or polygon.area <= 0.0:
+            raise ValueError("Slanted flange development produced an invalid polygon.")
+        developed.append(polygon)
+    return developed
+
+
 def _compact_bolt_line_side_counts(
     instances: list[BHBlockInstance],
     main: PartBlock,
@@ -1498,36 +1556,15 @@ def lower_bh_assembly(
         )
         if development.mode == "constant_height_two_flange_paths":
             # Equal-height member whose two flange paths differ: the flanges
-            # are flat rectangular plates (length x width).  Projection end
-            # bevels/stepped edges are assembly detail, not plate outline, so
-            # materialize clean rectangles instead of carrying the stepped
-            # silhouette (left-end protrusion) into the plate.  The rectangle
-            # is emitted in the source-projection frame (same origin as the
-            # flange circles) so ``_normalize_polygon_plate`` applies one
-            # shared translation to both outline and circles, keeping cut
-            # provenance registrable.  The long edge follows ``flange_axis``
-            # so a vertical member (long axis = y) is not rotated 90 deg.
-            src_b = source_flange_polygons[0].bounds
-            if flange_axis == "x":
-                flange_polygons = [
-                    box(
-                        src_b[0],
-                        src_b[1],
-                        src_b[0] + target,
-                        src_b[1] + metadata.profile.flange_width,
-                    )
-                    for target in development.target_lengths
-                ]
-            else:
-                flange_polygons = [
-                    box(
-                        src_b[0],
-                        src_b[1],
-                        src_b[0] + metadata.profile.flange_width,
-                        src_b[1] + target,
-                    )
-                    for target in development.target_lengths
-                ]
+            # are developed independently. Orthogonal returns remain assembly
+            # detail, but a slanted terminal edge is a cutting boundary.
+            flange_polygons = _materialize_constant_height_flange_paths(
+                source_flange_polygons[0],
+                development.target_lengths,
+                flange_axis=flange_axis,
+                flange_width=metadata.profile.flange_width,
+                preserve_slanted_end=use_source_course_spans,
+            )
         else:
             developed: list[Polygon] = []
             for target in development.target_lengths:
