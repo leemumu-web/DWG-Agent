@@ -29,6 +29,8 @@
 - `test_bh_manufacturing_ir.py` 锁定 BH 制造 IR 的角色标签契约；
 - `test_bh_nested_physical_flange_supervision.py` 锁定嵌套物理翼缘与手工标准几何比对；
 - `test_bh_weld_allowance_feature_binding.py` 锁定焊接余量特征绑定与切面契约。
+- `test_bh_development_rounding.py` 锁定来源/几何证明的 BH 派生翼缘长度向上取整到整数毫米。
+- `test_bh_slanted_flange_boundary.py` 锁定等高双翼缘展开保留真实斜切端边界，并保持正交投影矩形化。
 
 依赖外部 DXF 样本的图纸回归测试,样本缺失时自动跳过;样本根目录可用环境变量指向
 Linux 本地路径(见 `backend/tests/support/sample_roots.py`)。测试不能调用真实

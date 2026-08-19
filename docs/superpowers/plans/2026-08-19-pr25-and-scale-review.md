@@ -10,7 +10,7 @@
 
 ---
 
-### Task 1: Preserve the merged PR and remove invalid output scaling
+## Task 1: Preserve the merged PR and remove invalid output scaling
 
 **Files:**
 - Modify: `Stages/steel_dxf_split_v1.5.2/src/steel_dxf_split/bh_semantics.py`
@@ -23,7 +23,7 @@
 - [ ] Restore the merged PR files as the only algorithm changes and remove the previous title-scale coordinate transform.
 - [ ] Verify clean and allowance DXFs remain physical millimetres and retain the existing fixed allowance contract.
 
-### Task 2: Review PR25 behavior against real target drawings
+## Task 2: Review PR25 behavior against real target drawings
 
 **Files:**
 - Test: `backend/tests/dxf_splitting/test_bh_main_flange_course_authority.py`
@@ -32,7 +32,7 @@
 - [ ] Run focused PR tests and real BH compilation samples.
 - [ ] Fix only reproducible rule or evidence defects; leave valid behavior unchanged.
 
-### Task 3: Verify the 85-file production path
+## Task 3: Verify the 85-file production path
 
 **Files:**
 - Use: `准备优化的目标图纸/`
