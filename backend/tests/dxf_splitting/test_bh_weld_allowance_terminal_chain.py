@@ -247,3 +247,29 @@ def test_boundary_allowance_is_inserted_in_a_feature_free_middle_gap() -> None:
         if 1496.0 <= point[0] <= 1506.0
     }
     assert inserted_x == {1497.5, 1502.5}
+
+
+def test_single_sided_feature_group_uses_the_far_end_gap() -> None:
+    segments = _segments(
+        [
+            (0.0, 0.0, 0.0),
+            (3000.0, 0.0, 0.0),
+            (3000.0, 100.0, 0.0),
+            (0.0, 100.0, 0.0),
+        ]
+    )
+    contract = derive_weld_allowance_contract(segments)
+
+    stretched = stretch_outer_segments(
+        segments,
+        contract,
+        feature_x_extents=((100.0, 110.0), (1490.0, 1500.0)),
+    )
+
+    inserted_x = {
+        round(point[0], 6)
+        for segment in stretched
+        for point in (segment.start, segment.end)
+        if 2240.0 <= point[0] <= 2255.0
+    }
+    assert inserted_x == {2247.5, 2252.5}

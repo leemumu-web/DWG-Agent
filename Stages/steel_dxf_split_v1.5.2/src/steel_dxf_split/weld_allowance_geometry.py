@@ -10,8 +10,17 @@ from typing import Any
 _TOLERANCE_MM = 1e-7
 
 
-def cut_feature_x_extents(document: Any) -> tuple[tuple[float, float], ...]:
-    """Return conservative X extents for every native CUT_HOLE feature."""
+def cut_feature_x_extents(
+    document: Any,
+    *,
+    owner_id: str | None = None,
+) -> tuple[tuple[float, float], ...]:
+    """Return conservative X extents for native CUT_HOLE features.
+
+    When ``owner_id`` is supplied, only features bound to that physical plate
+    are considered. This keeps a hole group on one plate from influencing the
+    allowance insertion choice of another plate in the same DXF.
+    """
 
     from ezdxf import bbox as dxf_bbox
 
@@ -19,6 +28,18 @@ def cut_feature_x_extents(document: Any) -> tuple[tuple[float, float], ...]:
     for entity in document.modelspace():
         if entity.dxf.get("layer", "") != "CUT_HOLE":
             continue
+        if owner_id is not None:
+            owner = None
+            for app_id in ("STEEL_DXF_SPLIT", "BOX_DXF_SPLIT"):
+                try:
+                    tags = list(entity.get_xdata(app_id))
+                except Exception:
+                    continue
+                if len(tags) >= 2:
+                    owner = str(tags[1].value)
+                    break
+            if owner != owner_id:
+                continue
         if entity.dxftype() == "CIRCLE":
             center = entity.dxf.center
             radius = abs(float(entity.dxf.radius))
@@ -124,7 +145,7 @@ def _safe_insertion_x(
         gaps.append((cursor, overlap_max))
 
     candidates = [
-        (gap_start, gap_end - allowance)
+        (gap_start, gap_end)
         for gap_start, gap_end in gaps
         if gap_end - gap_start > allowance + _TOLERANCE_MM
     ]
@@ -141,16 +162,74 @@ def _safe_insertion_x(
         for coordinate in (segment.start[0], segment.end[0])
     )
     middle = (minimum_x + maximum_x) / 2.0
+    feature_centers = tuple((start + end) / 2.0 for start, end in intervals)
+    left_features = tuple(
+        interval
+        for interval, center in zip(intervals, feature_centers, strict=True)
+        if center < middle - _TOLERANCE_MM
+    )
+    right_features = tuple(
+        interval
+        for interval, center in zip(intervals, feature_centers, strict=True)
+        if center > middle + _TOLERANCE_MM
+    )
+
+    # Two-sided features must use an internal gap. This prevents a narrow gap
+    # between adjacent holes on one side from winning merely because it is
+    # close to the plate midpoint. For a single-sided feature group, require
+    # the opposite end gap, which is the part farthest from the holes.
+    if left_features and right_features:
+
+        def is_between_sides(gap: tuple[float, float]) -> bool:
+            left_candidates = [
+                interval
+                for interval in intervals
+                if interval[1] <= gap[0] + _TOLERANCE_MM
+            ]
+            right_candidates = [
+                interval
+                for interval in intervals
+                if interval[0] >= gap[1] - _TOLERANCE_MM
+            ]
+            if not left_candidates or not right_candidates:
+                return False
+            left = max(left_candidates, key=lambda interval: interval[1])
+            right = min(right_candidates, key=lambda interval: interval[0])
+            return (
+                (left[0] + left[1]) / 2.0 < middle - _TOLERANCE_MM
+                and (right[0] + right[1]) / 2.0 > middle + _TOLERANCE_MM
+            )
+
+        preferred = tuple(
+            gap
+            for gap in candidates
+            if is_between_sides(gap)
+        )
+    elif left_features:
+        far_end = max(end for _, end in intervals)
+        preferred = tuple(
+            gap for gap in candidates if gap[0] >= far_end - _TOLERANCE_MM
+        )
+    elif right_features:
+        far_end = min(start for start, _ in intervals)
+        preferred = tuple(
+            gap for gap in candidates if gap[1] <= far_end + _TOLERANCE_MM
+        )
+    else:
+        preferred = tuple(candidates)
+    if not preferred:
+        return None
+
     ranked = sorted(
-        candidates,
+        preferred,
         key=lambda gap: (
-            abs((gap[0] + gap[1] + allowance) / 2.0 - middle),
+            abs((gap[0] + gap[1]) / 2.0 - middle),
             -(gap[1] - gap[0]),
             gap[0],
         ),
     )
     low, high = ranked[0]
-    return (low + high) / 2.0
+    return (low + high - allowance) / 2.0
 
 
 def stretch_boundary_segments(

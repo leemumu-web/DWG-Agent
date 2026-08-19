@@ -521,7 +521,10 @@ def _validate_and_transform(
         after_segments = stretch_outer_segments(
             before_segments,
             actual_contract,
-            feature_x_extents=cut_feature_x_extents(document),
+            feature_x_extents=cut_feature_x_extents(
+                document,
+                owner_id=group_id,
+            ),
         )
         after_points = tuple(
             (segment.start[0], segment.start[1], segment.bulge)

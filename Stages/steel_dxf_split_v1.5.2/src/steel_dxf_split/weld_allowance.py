@@ -373,7 +373,10 @@ def _validate_and_transform(
         after_segments = stretch_outer_segments(
             before_segments,
             actual_contract,
-            feature_x_extents=cut_feature_x_extents(document),
+            feature_x_extents=cut_feature_x_extents(
+                document,
+                owner_id=plate_id,
+            ),
         )
         if declared_allowance > 0.0:
             entity.set_points(
