@@ -85,6 +85,8 @@ Data/
 /Stages/excel_final/data/
 # Ad-hoc analysis bundles (zips, unpacked samples, repro scripts)
 /tmp_data/
+# 太子：拆分/备份/中间结果等本地工作数据（zip、manifest、前后对比）
+/太子/
 # BH_optimization 工作区：仅跟踪源码/文档/配置，样本 DXF 与拆板结果属大数据
 /BH_optimization/sample_input/
 /BH_optimization/sample_output/
