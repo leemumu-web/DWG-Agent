@@ -476,3 +476,104 @@ def test_sub_tolerance_boundary_noise_is_not_emitted_as_a_zero_length_cut(
     outline, _ = geometry.analyze_geometry(context, metadata)
 
     assert all(geometry.native_entity_length(entity) > 0.001 for entity in outline.outer_entities)
+
+
+def _save_curved_geometry_source(path: Path) -> None:
+    document = _new_source_document()
+    layout = document.modelspace()
+    _add_metadata(
+        layout,
+        part_number="q6-b-62",
+        specification="PL25*300",
+        bom_length="600",
+        y=-900.0,
+    )
+    layout.add_line((0.0, 0.0), (400.0, 0.0), dxfattribs={"layer": "Part"})
+    layout.add_arc(
+        (400.0, 150.0),
+        150.0,
+        270.0,
+        90.0,
+        dxfattribs={"layer": "Part"},
+    )
+    layout.add_line((400.0, 300.0), (0.0, 300.0), dxfattribs={"layer": "Part"})
+    layout.add_line((0.0, 300.0), (0.0, 0.0), dxfattribs={"layer": "Part"})
+    _add_closed_polygon(
+        layout,
+        ((0.0, -500.0), (550.0, -500.0), (550.0, -475.0), (0.0, -475.0)),
+    )
+    document.saveas(path)
+
+
+def _developed_plate(path: Path):
+    contracts = importlib.import_module("steel_dxf_split.pl.contracts")
+    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    development = importlib.import_module("steel_dxf_split.pl.development")
+    context, metadata = _load_geometry_context(path)
+    outline, section = geometry.analyze_geometry(context, metadata)
+    entities, metrics = development.transform_outline(
+        outline.outer_entities,
+        projection_length_mm=outline.projection_length_mm,
+        surface_lengths_mm=section.equivalent_surface_lengths_mm,
+        bom_length_mm=metadata.bom_length_mm,
+        anchor_x_mm=outline.anchor_x_mm,
+    )
+    return contracts.DevelopedPlate(
+        metadata=metadata,
+        outline=outline,
+        section=section,
+        transformed_entities=entities,
+        metrics=metrics,
+    )
+
+
+def test_writer_emits_clean_r2007_mm_layers_label_and_exact_ellipse(
+    tmp_path: Path,
+) -> None:
+    writer = importlib.import_module("steel_dxf_split.pl.writer")
+    source = tmp_path / "curved.dxf"
+    output = tmp_path / "q6-b-62.dxf"
+    _save_curved_geometry_source(source)
+    developed = _developed_plate(source)
+
+    result = writer.write_pl_dxf(developed, output)
+    saved = ezdxf.readfile(output)
+
+    assert saved.dxfversion == "AC1021"
+    assert saved.header["$INSUNITS"] == 4
+    assert {entity.dxf.layer for entity in saved.modelspace()} == {
+        "PLATE_CUT",
+        "PART_LABEL",
+    }
+    assert len(saved.modelspace().query('ELLIPSE[layer=="PLATE_CUT"]')) == 1
+    labels = list(saved.modelspace().query('TEXT[layer=="PART_LABEL"]'))
+    assert [label.dxf.text for label in labels] == ["p=q6-b-62"]
+    assert labels[0].dxf.style == "SplitChinese"
+    assert saved.audit().has_errors is False
+    assert result.min_x_mm == pytest.approx(0.0, abs=0.001)
+    assert result.length_mm == pytest.approx(600.0, abs=0.001)
+    assert result.width_mm == pytest.approx(300.0, abs=0.001)
+    assert result.label == "p=q6-b-62"
+
+
+def test_saved_output_validation_rejects_non_manufacturing_entities(
+    tmp_path: Path,
+) -> None:
+    writer = importlib.import_module("steel_dxf_split.pl.writer")
+    source = tmp_path / "curved.dxf"
+    output = tmp_path / "q6-b-62.dxf"
+    _save_curved_geometry_source(source)
+    developed = _developed_plate(source)
+    writer.write_pl_dxf(developed, output)
+    altered = ezdxf.readfile(output)
+    altered.modelspace().add_circle(
+        (10.0, 10.0),
+        1.0,
+        dxfattribs={"layer": "Z-DIMENSIONS"},
+    )
+    altered.saveas(output)
+
+    with pytest.raises(PLSplitError) as error:
+        writer.validate_saved_pl_dxf(output, developed)
+
+    assert error.value.code == "OUTPUT_ENTITY_CONTRACT"

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from math import dist, radians
 from typing import cast
 
+from ezdxf import bbox
 from ezdxf.entities import DXFEntity, Ellipse, Line
 from shapely.geometry import LineString, MultiPolygon, Polygon
 from shapely.ops import polygonize_full, unary_union
@@ -306,13 +307,19 @@ def analyze_geometry(
             "MAIN_VIEW_HAS_HOLES",
             "主视图存在孔槽或内部闭合轮廓，当前 PL 规则不自动展开。",
         )
-    min_x, min_y, max_x, max_y = main.polygon.bounds
-    projection = float(max_x - min_x)
-    width = float(max_y - min_y)
     outer_entities = _outer_entities(main)
     proved_outer = validate_closed_outline(outer_entities, tolerance_mm=TOPOLOGY_TOLERANCE_MM)
     if proved_outer.symmetric_difference(main.polygon).area > 0.01:
         raise PLSplitError("MAIN_BOUNDARY_MISMATCH", "原生外边界与主视图材料区域不一致。")
+    native_bounds = bbox.extents(outer_entities, fast=False)
+    if not native_bounds.has_data:
+        raise PLSplitError("MAIN_BOUNDARY_MISSING", "主视图原生外边界没有有效范围。")
+    min_x = float(native_bounds.extmin.x)
+    min_y = float(native_bounds.extmin.y)
+    max_x = float(native_bounds.extmax.x)
+    max_y = float(native_bounds.extmax.y)
+    projection = max_x - min_x
+    width = max_y - min_y
 
     section_candidates: list[_Component] = []
     for component in components:

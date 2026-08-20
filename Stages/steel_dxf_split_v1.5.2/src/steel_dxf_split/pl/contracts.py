@@ -62,3 +62,23 @@ class SectionProof:
     proof_method: str
     source_handles: tuple[str, ...]
     candidate_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class DevelopedPlate:
+    metadata: PLMetadata
+    outline: PlateOutline
+    section: SectionProof
+    transformed_entities: tuple[DXFEntity, ...]
+    metrics: DevelopmentMetrics
+
+
+@dataclass(frozen=True, slots=True)
+class PLWriteResult:
+    output_path: Path
+    min_x_mm: float
+    length_mm: float
+    width_mm: float
+    label: str
+    entity_type_counts: tuple[tuple[str, int], ...]
+    audit_error_count: int
