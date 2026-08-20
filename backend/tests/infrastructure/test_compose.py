@@ -217,6 +217,13 @@ class TestAppServices:
             assert f"--concurrency=${{{variable}:-{default}}}" in command
             assert service["environment"]["DWG_WORKER_CONCURRENCY"] == f"${{{variable}:-{default}}}"
             assert f"{variable}={default}" in env_example
+        split_service = data["services"]["worker-dxf-split"]
+        assert (
+            split_service["environment"]["DXF_SPLIT_CLI_WORKER_CONCURRENCY"]
+            == "${DXF_SPLIT_CLI_WORKER_CONCURRENCY:-2}"
+        )
+        assert split_service["mem_limit"] == "${DXF_SPLIT_WORKER_MEMORY_LIMIT:-8g}"
+        assert "DXF_SPLIT_CLI_WORKER_CONCURRENCY=2" in env_example
         assert "WEB_CONCURRENCY=4" in env_example
 
     def test_long_lived_containers_raise_open_file_limit(self):

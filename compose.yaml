@@ -225,6 +225,9 @@ services:
       MINIO_ROOT_PASSWORD: ""
       DWG_WORKER_QUEUE: dxf_split
       DWG_WORKER_CONCURRENCY: "${DXF_SPLIT_WORKER_CONCURRENCY:-1}"
+      # This is the bounded process pool inside one CLI batch. Keep it
+      # separate from the Celery queue concurrency above.
+      DXF_SPLIT_CLI_WORKER_CONCURRENCY: "${DXF_SPLIT_CLI_WORKER_CONCURRENCY:-2}"
     cpus: "${DXF_SPLIT_WORKER_CPU_LIMIT:-2.0}"
     mem_limit: "${DXF_SPLIT_WORKER_MEMORY_LIMIT:-8g}"
     pids_limit: ${DXF_SPLIT_WORKER_PIDS_LIMIT:-128}
