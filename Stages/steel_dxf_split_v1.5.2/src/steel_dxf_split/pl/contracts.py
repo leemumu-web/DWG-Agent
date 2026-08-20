@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
+
+from ezdxf.entities import DXFEntity
 
 
 class PLSplitError(ValueError):
@@ -21,3 +24,19 @@ class DevelopmentMetrics:
     target_length_mm: float
     scale_x: float
     anchor_x_mm: float
+
+
+@dataclass(frozen=True, slots=True)
+class PLSourceContext:
+    source_path: Path
+    context_id: str
+    container_handle: str | None
+    entities: tuple[DXFEntity, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class PLMetadata:
+    part_number: str
+    thickness_mm: float
+    width_mm: float
+    bom_length_mm: float
