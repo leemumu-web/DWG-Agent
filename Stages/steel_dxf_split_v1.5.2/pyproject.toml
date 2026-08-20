@@ -1,7 +1,7 @@
 [project]
 name = "steel-dxf-split"
 version = "1.5.2"
-description = "Manufacturing semantic compiler for BH and BOX DXF plate splitting"
+description = "Manufacturing semantic compiler for BH, BOX, and isolated PL DXF plate splitting"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
 dependencies = [
@@ -19,6 +19,7 @@ dev = [
 
 [project.scripts]
 steel-dxf-split = "steel_dxf_split.cli:main"
+steel-dxf-split-pl = "steel_dxf_split.pl.cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]

@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from decimal import Decimal
 import importlib
+import json
 from pathlib import Path
+import subprocess
+import sys
 
 import ezdxf
 import pytest
@@ -577,3 +580,231 @@ def test_saved_output_validation_rejects_non_manufacturing_entities(
         writer.validate_saved_pl_dxf(output, developed)
 
     assert error.value.code == "OUTPUT_ENTITY_CONTRACT"
+
+
+def _add_sheet_geometry(
+    layout,
+    *,
+    part_number: str,
+    thickness_mm: float,
+    width_mm: float,
+    bom_length_mm: float,
+    include_section: bool = True,
+) -> None:
+    _add_metadata(
+        layout,
+        part_number=part_number,
+        specification=f"PL{thickness_mm:g}*{width_mm:g}",
+        bom_length=f"{bom_length_mm:g}",
+        y=-900.0,
+    )
+    _add_closed_polygon(
+        layout,
+        ((0.0, 0.0), (399.0, 0.0), (399.0, width_mm), (0.0, width_mm)),
+    )
+    layout.add_line(
+        (100.0, 0.0),
+        (100.0, width_mm),
+        dxfattribs={"layer": "Part"},
+    )
+    if include_section:
+        _add_closed_polygon(
+            layout,
+            (
+                (0.0, -500.0),
+                (399.0, -500.0),
+                (399.0, -500.0 + thickness_mm),
+                (0.0, -500.0 + thickness_mm),
+            ),
+        )
+
+
+def _save_combined_geometry_dxf(
+    path: Path,
+    *,
+    reject_second: bool = False,
+) -> None:
+    document = _new_source_document()
+    first = document.blocks.new("sheet-a")
+    _add_sheet_geometry(
+        first,
+        part_number="q6-b-62",
+        thickness_mm=25.0,
+        width_mm=300.0,
+        bom_length_mm=470.0,
+    )
+    second = document.blocks.new("sheet-b")
+    _add_sheet_geometry(
+        second,
+        part_number="p=q6-b-71",
+        thickness_mm=30.0,
+        width_mm=350.0,
+        bom_length_mm=480.0,
+        include_section=not reject_second,
+    )
+    document.modelspace().add_blockref("sheet-a", (0.0, 0.0))
+    document.modelspace().add_blockref("sheet-b", (1000.0, 0.0))
+    document.saveas(path)
+
+
+def test_batch_split_publishes_one_dxf_per_part_and_complete_json_report(
+    tmp_path: Path,
+) -> None:
+    compiler = importlib.import_module("steel_dxf_split.pl.compiler")
+    source = tmp_path / "combined.dxf"
+    output = tmp_path / "output"
+    _save_combined_geometry_dxf(source)
+
+    batch = compiler.split_pl(source, output)
+    report = json.loads(batch.report_path.read_text(encoding="utf-8"))
+
+    assert batch.exit_code == 0
+    assert batch.success_count == 2
+    assert batch.rejected_count == 0
+    assert {path.name for path in output.glob("*.dxf")} == {
+        "q6-b-62.dxf",
+        "q6-b-71.dxf",
+    }
+    assert report["schema"] == "steel-dxf-split-pl-report/1"
+    assert [item["part_number"] for item in report["items"]] == [
+        "q6-b-62",
+        "q6-b-71",
+    ]
+    assert {item["status"] for item in report["items"]} == {"success"}
+    assert report["items"][0]["lengths"]["target_mm"] == pytest.approx(470.0)
+    assert report["items"][0]["output"]["label"] == "p=q6-b-62"
+
+
+def test_rejected_sheet_does_not_prevent_valid_sheet_publication(tmp_path: Path) -> None:
+    compiler = importlib.import_module("steel_dxf_split.pl.compiler")
+    source = tmp_path / "partial.dxf"
+    output = tmp_path / "output"
+    _save_combined_geometry_dxf(source, reject_second=True)
+
+    batch = compiler.split_pl(source, output)
+
+    assert batch.exit_code == 1
+    assert batch.success_count == 1
+    assert batch.rejected_count == 1
+    assert (output / "q6-b-62.dxf").is_file()
+    assert not (output / "q6-b-71.dxf").exists()
+    rejected = next(item for item in batch.items if item.status == "rejected")
+    assert rejected.part_number == "q6-b-71"
+    assert rejected.error_code == "SECTION_MISSING"
+
+
+def test_existing_part_output_is_preserved_without_overwrite(tmp_path: Path) -> None:
+    compiler = importlib.import_module("steel_dxf_split.pl.compiler")
+    source = tmp_path / "combined.dxf"
+    output = tmp_path / "output"
+    output.mkdir()
+    sentinel = output / "q6-b-62.dxf"
+    sentinel.write_bytes(b"keep-existing")
+    _save_combined_geometry_dxf(source)
+
+    batch = compiler.split_pl(source, output)
+
+    assert batch.exit_code == 1
+    assert sentinel.read_bytes() == b"keep-existing"
+    first = next(item for item in batch.items if item.part_number == "q6-b-62")
+    assert first.status == "rejected"
+    assert first.error_code == "OUTPUT_EXISTS"
+    assert (output / "q6-b-71.dxf").is_file()
+
+
+def test_overwrite_replaces_only_the_exact_owned_part_target(tmp_path: Path) -> None:
+    compiler = importlib.import_module("steel_dxf_split.pl.compiler")
+    source = tmp_path / "combined.dxf"
+    output = tmp_path / "output"
+    output.mkdir()
+    target = output / "q6-b-62.dxf"
+    neighbor = output / "unrelated.dxf"
+    target.write_bytes(b"replace-me")
+    neighbor.write_bytes(b"preserve-me")
+    _save_combined_geometry_dxf(source)
+
+    batch = compiler.split_pl(source, output, overwrite=True)
+
+    assert batch.exit_code == 0
+    assert ezdxf.readfile(target).audit().has_errors is False
+    assert neighbor.read_bytes() == b"preserve-me"
+
+
+def test_duplicate_part_numbers_are_rejected_before_any_target_is_published(
+    tmp_path: Path,
+) -> None:
+    compiler = importlib.import_module("steel_dxf_split.pl.compiler")
+    source = tmp_path / "duplicate.dxf"
+    output = tmp_path / "output"
+    document = _new_source_document()
+    for block_name in ("sheet-a", "sheet-b"):
+        sheet = document.blocks.new(block_name)
+        _add_sheet_geometry(
+            sheet,
+            part_number="q6-b-62",
+            thickness_mm=25.0,
+            width_mm=300.0,
+            bom_length_mm=470.0,
+        )
+        document.modelspace().add_blockref(block_name, (0.0, 0.0))
+    document.saveas(source)
+
+    batch = compiler.split_pl(source, output)
+
+    assert batch.exit_code == 1
+    assert batch.success_count == 0
+    assert batch.rejected_count == 2
+    assert {item.error_code for item in batch.items} == {"DUPLICATE_PART_NUMBER"}
+    assert not list(output.glob("*.dxf"))
+
+
+def test_cli_returns_zero_one_and_two_with_json_stdout(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    cli = importlib.import_module("steel_dxf_split.pl.cli")
+    valid = tmp_path / "valid.dxf"
+    partial = tmp_path / "partial.dxf"
+    invalid = tmp_path / "invalid.dwg"
+    _save_combined_geometry_dxf(valid)
+    _save_combined_geometry_dxf(partial, reject_second=True)
+    invalid.write_bytes(b"not-a-dwg")
+
+    assert cli.main([str(valid), "--output-dir", str(tmp_path / "success")]) == 0
+    success_payload = json.loads(capsys.readouterr().out)
+    assert success_payload["success_count"] == 2
+    assert cli.main([str(partial), "--output-dir", str(tmp_path / "partial-out")]) == 1
+    partial_payload = json.loads(capsys.readouterr().out)
+    assert partial_payload["rejected_count"] == 1
+    assert cli.main([str(invalid), "--output-dir", str(tmp_path / "fatal")]) == 2
+    fatal_payload = json.loads(capsys.readouterr().out)
+    assert fatal_payload["status"] == "fatal"
+    assert fatal_payload["error"]["code"] == "DWG_NOT_SUPPORTED"
+
+
+def test_pl_runtime_does_not_load_bh_box_pipeline_or_merge_modules(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "combined.dxf"
+    output = tmp_path / "output"
+    _save_combined_geometry_dxf(source)
+    script = "\n".join(
+        (
+            "import json, sys",
+            "from pathlib import Path",
+            "from steel_dxf_split.pl import split_pl",
+            f"result = split_pl(Path({str(source)!r}), Path({str(output)!r}))",
+            "forbidden = sorted(name for name in sys.modules if name == 'steel_dxf_split.pipeline' or name.startswith('steel_dxf_split.box') or name.startswith('steel_dxf_split.bh_') or name == 'tools.merge_sheet')",
+            "print(json.dumps({'exit_code': result.exit_code, 'forbidden': forbidden}))",
+        )
+    )
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(completed.stdout)
+    assert payload == {"exit_code": 0, "forbidden": []}

@@ -82,3 +82,41 @@ class PLWriteResult:
     label: str
     entity_type_counts: tuple[tuple[str, int], ...]
     audit_error_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class PLCompilation:
+    developed: DevelopedPlate
+    write_result: PLWriteResult
+
+
+@dataclass(frozen=True, slots=True)
+class PLItemResult:
+    status: str
+    source_path: Path
+    context_id: str
+    part_number: str | None
+    output_path: Path | None
+    compilation: PLCompilation | None
+    error_code: str | None
+    error_message_zh: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class PLBatchResult:
+    input_path: Path
+    output_dir: Path
+    report_path: Path
+    items: tuple[PLItemResult, ...]
+
+    @property
+    def success_count(self) -> int:
+        return sum(item.status == "success" for item in self.items)
+
+    @property
+    def rejected_count(self) -> int:
+        return sum(item.status == "rejected" for item in self.items)
+
+    @property
+    def exit_code(self) -> int:
+        return 1 if self.rejected_count else 0
