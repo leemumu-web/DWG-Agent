@@ -280,3 +280,199 @@ def test_dwg_input_is_rejected_with_conversion_guidance(tmp_path: Path) -> None:
         source.load_source_contexts(drawing)
 
     assert error.value.code == "DWG_NOT_SUPPORTED"
+
+
+def _add_closed_polygon(layout, points: tuple[tuple[float, float], ...]) -> None:
+    for start, end in zip(points, (*points[1:], points[0]), strict=True):
+        layout.add_line(start, end, dxfattribs={"layer": "Part"})
+
+
+def _save_geometry_source(
+    path: Path,
+    *,
+    include_section: bool = True,
+    duplicate_main: bool = False,
+    include_hole: bool = False,
+) -> None:
+    document = _new_source_document()
+    layout = document.modelspace()
+    _add_metadata(
+        layout,
+        part_number="q6-b-62",
+        specification="PL25*300",
+        bom_length="470",
+        y=-900.0,
+    )
+    _add_closed_polygon(layout, ((0.0, 0.0), (399.0, 0.0), (399.0, 300.0), (0.0, 300.0)))
+    layout.add_line((100.0, 0.0), (100.0, 300.0), dxfattribs={"layer": "Part"})
+    if duplicate_main:
+        _add_closed_polygon(
+            layout,
+            ((0.0, 500.0), (399.0, 500.0), (399.0, 800.0), (0.0, 800.0)),
+        )
+    if include_hole:
+        _add_closed_polygon(
+            layout,
+            ((100.0, 100.0), (120.0, 100.0), (120.0, 120.0), (100.0, 120.0)),
+        )
+    if include_section:
+        _add_closed_polygon(
+            layout,
+            ((0.0, -500.0), (399.0, -500.0), (399.0, -475.0), (0.0, -475.0)),
+        )
+        layout.add_line(
+            (200.0, -500.0),
+            (200.0, -475.0),
+            dxfattribs={"layer": "Part"},
+        )
+    document.saveas(path)
+
+
+def _load_geometry_context(path: Path):
+    source = importlib.import_module("steel_dxf_split.pl.source")
+    [context] = source.load_source_contexts(path)
+    return context, source.extract_metadata(context)
+
+
+def test_geometry_proof_selects_only_the_main_outer_boundary_and_unique_section(
+    tmp_path: Path,
+) -> None:
+    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    drawing = tmp_path / "geometry.dxf"
+    _save_geometry_source(drawing)
+    context, metadata = _load_geometry_context(drawing)
+
+    outline, section = geometry.analyze_geometry(context, metadata)
+
+    assert outline.projection_length_mm == pytest.approx(399.0)
+    assert outline.width_mm == pytest.approx(300.0)
+    assert outline.anchor_x_mm == pytest.approx(0.0)
+    assert len(outline.outer_entities) == 4
+    assert section.k_length_mm == pytest.approx(399.0)
+    assert section.proof_method == "section_area_over_thickness_k_half"
+
+
+def test_section_area_over_thickness_handles_a_sloped_end_cap(tmp_path: Path) -> None:
+    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    drawing = tmp_path / "sloped-cap.dxf"
+    document = _new_source_document()
+    layout = document.modelspace()
+    _add_metadata(
+        layout,
+        part_number="q6-b-62",
+        specification="PL25*300",
+        bom_length="400",
+        y=-900.0,
+    )
+    _add_closed_polygon(layout, ((0.0, 0.0), (400.0, 0.0), (400.0, 300.0), (0.0, 300.0)))
+    _add_closed_polygon(
+        layout,
+        ((0.0, -500.0), (390.0, -500.0), (400.0, -475.0), (0.0, -475.0)),
+    )
+    document.saveas(drawing)
+    context, metadata = _load_geometry_context(drawing)
+
+    _, section = geometry.analyze_geometry(context, metadata)
+
+    assert section.k_length_mm == pytest.approx(395.0)
+
+
+def test_main_view_hole_is_rejected_until_hole_development_is_defined(
+    tmp_path: Path,
+) -> None:
+    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    drawing = tmp_path / "hole.dxf"
+    _save_geometry_source(drawing, include_hole=True)
+    context, metadata = _load_geometry_context(drawing)
+
+    with pytest.raises(PLSplitError) as error:
+        geometry.analyze_geometry(context, metadata)
+
+    assert error.value.code == "MAIN_VIEW_HAS_HOLES"
+
+
+def test_two_equally_credible_main_views_are_rejected(tmp_path: Path) -> None:
+    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    drawing = tmp_path / "two-main-views.dxf"
+    _save_geometry_source(drawing, duplicate_main=True)
+    context, metadata = _load_geometry_context(drawing)
+
+    with pytest.raises(PLSplitError) as error:
+        geometry.analyze_geometry(context, metadata)
+
+    assert error.value.code == "MAIN_VIEW_AMBIGUOUS"
+
+
+def test_missing_closed_section_is_rejected(tmp_path: Path) -> None:
+    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    drawing = tmp_path / "missing-section.dxf"
+    _save_geometry_source(drawing, include_section=False)
+    context, metadata = _load_geometry_context(drawing)
+
+    with pytest.raises(PLSplitError) as error:
+        geometry.analyze_geometry(context, metadata)
+
+    assert error.value.code == "SECTION_MISSING"
+
+
+def test_non_x_main_axis_is_rejected(tmp_path: Path) -> None:
+    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    drawing = tmp_path / "vertical-main.dxf"
+    document = _new_source_document()
+    layout = document.modelspace()
+    _add_metadata(
+        layout,
+        part_number="q6-b-62",
+        specification="PL25*300",
+        bom_length="470",
+        y=-900.0,
+    )
+    _add_closed_polygon(layout, ((0.0, 0.0), (300.0, 0.0), (300.0, 399.0), (0.0, 399.0)))
+    _add_closed_polygon(
+        layout,
+        ((0.0, -500.0), (300.0, -500.0), (300.0, -475.0), (0.0, -475.0)),
+    )
+    document.saveas(drawing)
+    context, metadata = _load_geometry_context(drawing)
+
+    with pytest.raises(PLSplitError) as error:
+        geometry.analyze_geometry(context, metadata)
+
+    assert error.value.code == "MAIN_VIEW_MISSING"
+
+
+def test_sub_tolerance_boundary_noise_is_not_emitted_as_a_zero_length_cut(
+    tmp_path: Path,
+) -> None:
+    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    drawing = tmp_path / "tiny-boundary-edge.dxf"
+    document = _new_source_document()
+    layout = document.modelspace()
+    _add_metadata(
+        layout,
+        part_number="q6-b-62",
+        specification="PL25*300",
+        bom_length="470",
+        y=-900.0,
+    )
+    _add_closed_polygon(
+        layout,
+        (
+            (0.0, 0.0),
+            (100.0, 0.0),
+            (100.00001, 0.0),
+            (399.0, 0.0),
+            (399.0, 300.0),
+            (0.0, 300.0),
+        ),
+    )
+    _add_closed_polygon(
+        layout,
+        ((0.0, -500.0), (399.0, -500.0), (399.0, -475.0), (0.0, -475.0)),
+    )
+    document.saveas(drawing)
+    context, metadata = _load_geometry_context(drawing)
+
+    outline, _ = geometry.analyze_geometry(context, metadata)
+
+    assert all(geometry.native_entity_length(entity) > 0.001 for entity in outline.outer_entities)

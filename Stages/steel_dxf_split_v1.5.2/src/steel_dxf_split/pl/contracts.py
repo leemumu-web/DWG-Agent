@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ezdxf.entities import DXFEntity
+from shapely.geometry import Polygon
 
 
 class PLSplitError(ValueError):
@@ -40,3 +41,24 @@ class PLMetadata:
     thickness_mm: float
     width_mm: float
     bom_length_mm: float
+
+
+@dataclass(frozen=True, slots=True)
+class PlateOutline:
+    outer_entities: tuple[DXFEntity, ...]
+    polygon: Polygon
+    projection_length_mm: float
+    width_mm: float
+    anchor_x_mm: float
+    source_handles: tuple[str, ...]
+    candidate_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class SectionProof:
+    polygon: Polygon
+    k_length_mm: float
+    equivalent_surface_lengths_mm: tuple[float, float]
+    proof_method: str
+    source_handles: tuple[str, ...]
+    candidate_count: int

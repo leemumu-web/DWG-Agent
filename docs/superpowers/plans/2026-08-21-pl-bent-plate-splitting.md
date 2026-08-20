@@ -244,14 +244,15 @@ git commit -m "feat: parse PL drawing evidence"
 
 - [ ] **Step 1: Add failing geometry proof tests**
 
-Generate a 399 x 300 main rectangle with one internal vertical fold line and a separate closed section band whose two external surface paths have known line/arc lengths. Assert:
+Generate a 399 x 300 main rectangle with one internal vertical fold line and a separate closed 399 x 25 section band. Add a second sloped-end section fixture whose area is hand-derived as `9875 mm²`. Assert:
 
 ```python
 outline, section = analyze_geometry(context, metadata)
 assert outline.projection_length_mm == pytest.approx(399.0)
 assert outline.width_mm == pytest.approx(300.0)
 assert len(outline.outer_entities) == 4
-assert section.surface_lengths_mm == pytest.approx((468.0, 472.0))
+assert section.k_length_mm == pytest.approx(399.0)
+assert sloped_section.k_length_mm == pytest.approx(9875.0 / 25.0)
 ```
 
 Add separate fixtures that must raise `PLSplitError` for a hole in the main outline, two equally credible 300 mm-wide main views, non-X main axis, disconnected main bodies, a missing section, more than two thickness-length external end caps, and a section path gap over `0.1 mm`.
@@ -278,7 +279,7 @@ material = unary_union(tuple(polygons.geoms))
 
 Snap endpoints only for component membership within `0.1 mm`; use the original entities for length and output. A main candidate is a single valid polygon with no interiors, positive area, X span greater than Y span, and Y span within `0.1 mm` of the declared width. Select source outer entities only when their flattened line is covered by a `0.05 mm` buffer of the union boundary.
 
-For each non-main polygon candidate, find external `LINE` segments whose exact length is within `0.1 mm` of plate thickness. Exactly two must be end caps. Removing them must leave exactly two connected native paths between the same two endpoint node pairs. Sum each path using Euclidean line length, radius times angular span for arcs, and controlled adaptive numerical integration for ellipses. Sort the two lengths before storing them because `K=0.5` is side-independent.
+For each non-main polygon candidate, require one valid hole-free material polygon whose X span matches the main projection within `0.1 mm`. Compute `L_K = section_polygon.area / metadata.thickness_mm`; for a constant-thickness band this equals the average of both plate-face paths while correctly handling the real corpus's sloped and composite end-cap chains. Build the polygon from traceable native lines/arcs using `0.001 mm` maximum sagitta and store `proof_method="section_area_over_thickness_k_half"`.
 
 - [ ] **Step 4: Run geometry tests and verify they pass**
 
@@ -399,7 +400,7 @@ Expected: tests fail because compiler/CLI symbols and the console script are abs
 
 `split_pl()` must freeze all input files before opening any output, reject duplicate normalized part numbers, and create a unique temporary task directory inside `output_dir`. Each successful item is written and validated there, then published with `os.replace()` to the exact `<part-number>.dxf` target. Existing targets are left untouched unless `overwrite=True`.
 
-Write `pl_split_report.json` in UTF-8 with `ensure_ascii=False`, including metadata, candidate counts, source handles/types, `L_projection`, both surface lengths, `L_K`, `L_bom`, `L_raw`, `L_target`, `scale_x`, anchor, entity type counts, validation results, result path, or stable reject code plus Chinese message. Publish the report atomically after all items. Remove only the exact owned temporary directory in `finally`.
+Write `pl_split_report.json` in UTF-8 with `ensure_ascii=False`, including metadata, candidate counts, source handles/types, `L_projection`, section area, thickness, K proof method, `L_K`, `L_bom`, `L_raw`, `L_target`, `scale_x`, anchor, entity type counts, validation results, result path, or stable reject code plus Chinese message. Publish the report atomically after all items. Remove only the exact owned temporary directory in `finally`.
 
 `main()` prints the same report object as JSON and returns 0 for all success, 1 when at least one auditable context is rejected, and 2 for input/whole-document failure. It never invokes DWG conversion or merge behavior.
 
