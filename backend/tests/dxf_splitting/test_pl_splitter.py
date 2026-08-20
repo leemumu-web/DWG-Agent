@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-from decimal import Decimal
 import importlib
 import json
-from pathlib import Path
+import os
 import subprocess
 import sys
+from decimal import Decimal
+from pathlib import Path
 
 import ezdxf
 import pytest
 from steel_dxf_split.pl.contracts import PLSplitError
+from tests.support.paths import REPO_ROOT
 
 
 def test_k_half_neutral_axis_uses_the_mean_of_both_plate_faces() -> None:
@@ -672,7 +674,12 @@ def test_batch_split_publishes_one_dxf_per_part_and_complete_json_report(
     ]
     assert {item["status"] for item in report["items"]} == {"success"}
     assert report["items"][0]["lengths"]["target_mm"] == pytest.approx(470.0)
+    assert report["items"][0]["geometry"]["source_width_mm"] == pytest.approx(300.0)
+    assert report["items"][0]["geometry"]["source_anchor_x_mm"] == pytest.approx(0.0)
     assert report["items"][0]["output"]["label"] == "p=q6-b-62"
+    assert report["items"][0]["output"]["width_mm"] == pytest.approx(
+        report["items"][0]["geometry"]["source_width_mm"]
+    )
 
 
 def test_rejected_sheet_does_not_prevent_valid_sheet_publication(tmp_path: Path) -> None:
@@ -808,3 +815,40 @@ def test_pl_runtime_does_not_load_bh_box_pipeline_or_merge_modules(
 
     payload = json.loads(completed.stdout)
     assert payload == {"exit_code": 0, "forbidden": []}
+
+
+def test_independent_stage_launcher_executes_pl_without_bh_box_entrypoint(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "combined.dxf"
+    output = tmp_path / "output"
+    _save_combined_geometry_dxf(source)
+    launcher_source = REPO_ROOT / "Stages" / "steel_dxf_split_pl" / "src"
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = os.pathsep.join(
+        filter(None, (str(launcher_source), environment.get("PYTHONPATH")))
+    )
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "steel_dxf_split_pl.cli",
+            str(source),
+            "--output-dir",
+            str(output),
+        ],
+        cwd=REPO_ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload["success_count"] == 2
+    assert payload["rejected_count"] == 0
+    assert sorted(path.name for path in output.glob("*.dxf")) == [
+        "q6-b-62.dxf",
+        "q6-b-71.dxf",
+    ]

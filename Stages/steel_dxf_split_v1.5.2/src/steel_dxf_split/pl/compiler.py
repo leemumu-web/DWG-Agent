@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from collections import Counter
-from dataclasses import replace
 import json
 import os
+from collections import Counter
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -13,8 +13,8 @@ from .contracts import (
     PLCompilation,
     PLItemResult,
     PLMetadata,
-    PLSplitError,
     PLSourceContext,
+    PLSplitError,
 )
 from .development import transform_outline
 from .geometry import analyze_geometry
@@ -101,6 +101,10 @@ def _success_payload(item: PLItemResult) -> dict[str, object]:
             "bom_mm": metrics.bom_length_mm,
             "raw_mm": metrics.raw_length_mm,
             "target_mm": metrics.target_length_mm,
+        },
+        "geometry": {
+            "source_width_mm": developed.outline.width_mm,
+            "source_anchor_x_mm": developed.outline.anchor_x_mm,
         },
         "transform": {
             "scale_x": metrics.scale_x,

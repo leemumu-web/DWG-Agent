@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from pathlib import Path
 import re
+from pathlib import Path
 
 from ezdxf.entities import DXFEntity, MText, Text
 
@@ -13,7 +13,7 @@ from steel_dxf_split.dxf_io import (
     recursive_virtual_entities,
 )
 
-from .contracts import PLMetadata, PLSplitError, PLSourceContext
+from .contracts import PLMetadata, PLSourceContext, PLSplitError
 
 _PART_NUMBER = re.compile(r"^(?:p=)?([A-Za-z0-9][A-Za-z0-9._-]*)$", re.IGNORECASE)
 _PL_SPEC = re.compile(

@@ -2,7 +2,7 @@
 
 ## 目标
 
-在 `steel-dxf-split` 阶段包内新增一个与 BH/BOX 运行路径隔离的 `steel-dxf-split-pl` Python 工具：把 Tekla PL 折弯板投影视图转换为一块连续的 1:1 展开板，并逐件生成可审计的结果 DXF。
+新增与 BH/BOX 运行路径隔离的 PL Python 核心，并由单独的 `steel-dxf-split-pl` 启动包提供命令：把 Tekla PL 折弯板投影视图转换为一块连续的 1:1 展开板，并逐件生成可审计的结果 DXF。
 
 PL 核心使用 `ezdxf==1.4.4` 读写和变换原生 DXF 实体，使用 `Shapely>=2.1,<3` 重建、选择和验证二维轮廓。DWG 与 DXF 之间的转换继续使用仓库已有 `dwg2dxf`、`dxf2dwg` Stage；PL 工具本身不直接读取或写入 DWG。
 
@@ -26,7 +26,7 @@ PL 核心使用 `ezdxf==1.4.4` 读写和变换原生 DXF 实体，使用 `Shapel
 - BH/BOX writer：R2007、毫米单位、清洁制造图层、中文字体、保存后审计和确定性写图模式。
 - `part_mark_layout`：在有效材料区域内放置零件标记。
 
-现有统一 `pipeline.py` 只接受冻结分类 `BH` 或 `BOX`，并强制生成普通版与余量版配对结果。PL 的单板、单产物合同与该入口不兼容。本次不把 PL 塞入 BH/BOX 统一入口，不修改 BH/BOX 制造几何、余量、发布认证、后端工作流或现有合图脚本。PL 拆板作为 `steel_dxf_split/pl/` 下的独立模块与独立命令交付。
+现有统一 `pipeline.py` 只接受冻结分类 `BH` 或 `BOX`，并强制生成普通版与余量版配对结果。PL 的单板、单产物合同与该入口不兼容。本次不把 PL 塞入 BH/BOX 统一入口，不修改 BH/BOX 制造几何、余量、发布认证、后端工作流或现有合图脚本。PL 拆板核心位于 `steel_dxf_split/pl/`，命令由单独的 `Stages/steel_dxf_split_pl` 轻量启动包提供；原 BH/BOX `pyproject.toml` 和 `steel-dxf-split` 入口保持不变。
 
 ## 方案选择
 
@@ -55,6 +55,7 @@ PL 核心使用 `ezdxf==1.4.4` 读写和变换原生 DXF 实体，使用 `Shapel
 - `pl/writer.py`：只从已验证的展开结果生成清洁 PL DXF，并执行保存后复核。
 - `pl/compiler.py`：编排一个零件的源解释、展开、验证和写图事务。
 - `pl/cli.py`：批量处理单张、合并图或输入目录，发布结果及拆板报告。
+- `Stages/steel_dxf_split_pl`：只注册 `steel-dxf-split-pl` 命令并转发到 PL CLI，不导入 BH/BOX 入口。
 
 ## PL 源输入合同
 

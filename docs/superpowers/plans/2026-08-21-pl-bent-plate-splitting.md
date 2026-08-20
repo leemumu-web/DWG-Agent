@@ -47,7 +47,8 @@ Expected: Python reports 3.12.x, `ezdxf==1.4.4`, `Shapely>=2.1,<3`, and pytest a
 - Create `Stages/steel_dxf_split_v1.5.2/src/steel_dxf_split/pl/writer.py`: clean R2007 DXF generation, mark placement, save/reload validation.
 - Create `Stages/steel_dxf_split_v1.5.2/src/steel_dxf_split/pl/compiler.py`: single-context compilation and batch transaction/report publication.
 - Create `Stages/steel_dxf_split_v1.5.2/src/steel_dxf_split/pl/cli.py`: `steel-dxf-split-pl` argument parsing, JSON stdout, and exit codes 0/1/2.
-- Modify `Stages/steel_dxf_split_v1.5.2/pyproject.toml`: register only the new independent console script and retain dependency bounds.
+- Create `Stages/steel_dxf_split_pl/`: register the independent console script in a lightweight launcher package that depends on the existing Stage package.
+- Preserve `Stages/steel_dxf_split_v1.5.2/pyproject.toml`: keep the protected BH/BOX package metadata and console-script list byte-for-byte unchanged.
 - Modify `Stages/steel_dxf_split_v1.5.2/README.md`: document the second independent command and explicitly state that it is not backend-integrated.
 - Create `backend/tests/dxf_splitting/test_pl_splitter.py`: generated DXF fixtures and focused unit/integration/CLI regression tests.
 - Modify `D:/下载/PL折弯板拆板规则总结.md`: align the user-facing rule summary with the implemented contract.
@@ -372,13 +373,15 @@ git commit -m "feat: write validated PL output DXF"
 - Create: `Stages/steel_dxf_split_v1.5.2/src/steel_dxf_split/pl/compiler.py`
 - Create: `Stages/steel_dxf_split_v1.5.2/src/steel_dxf_split/pl/cli.py`
 - Create: `Stages/steel_dxf_split_v1.5.2/src/steel_dxf_split/pl/__init__.py`
-- Modify: `Stages/steel_dxf_split_v1.5.2/pyproject.toml`
+- Create: `Stages/steel_dxf_split_pl/pyproject.toml`
+- Create: `Stages/steel_dxf_split_pl/src/steel_dxf_split_pl/cli.py`
+- Preserve: `Stages/steel_dxf_split_v1.5.2/pyproject.toml`
 - Modify: `backend/tests/dxf_splitting/test_pl_splitter.py`
 
 **Interfaces:**
 - Consumes: all prior source, geometry, development, and writer APIs.
 - Produces: `compile_context(context, output_path)`, `split_pl(input_path, output_dir, overwrite=False) -> PLBatchResult`, and `main(argv=None) -> int`.
-- Console script: `steel-dxf-split-pl = "steel_dxf_split.pl.cli:main"`.
+- Console script: `steel-dxf-split-pl = "steel_dxf_split_pl.cli:main"`; the wrapper delegates only to `steel_dxf_split.pl.cli.main`.
 
 - [ ] **Step 1: Add failing end-to-end and CLI tests**
 
@@ -394,7 +397,7 @@ Run:
 & $env:PL_TEST_PYTHON -m pytest backend/tests/dxf_splitting/test_pl_splitter.py -k "batch or cli or independent" -q
 ```
 
-Expected: tests fail because compiler/CLI symbols and the console script are absent.
+Expected: tests fail because compiler/CLI symbols and the independent launcher package are absent.
 
 - [ ] **Step 3: Implement transaction and reports**
 
@@ -417,7 +420,7 @@ Expected: all PL tests pass.
 - [ ] **Step 5: Commit locally**
 
 ```powershell
-git add -- backend/tests/dxf_splitting/test_pl_splitter.py Stages/steel_dxf_split_v1.5.2/src/steel_dxf_split/pl Stages/steel_dxf_split_v1.5.2/pyproject.toml
+git add -- backend/tests/dxf_splitting/test_pl_splitter.py Stages/steel_dxf_split_v1.5.2/src/steel_dxf_split/pl Stages/steel_dxf_split_pl
 git commit -m "feat: add standalone PL splitter"
 ```
 

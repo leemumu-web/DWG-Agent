@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from .compiler import batch_payload, split_pl
 from .contracts import PLSplitError
@@ -41,17 +41,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             {
                 "status": "fatal",
                 "error": {"code": error.code, "message_zh": error.message_zh},
-            }
-        )
-        return 2
-    except Exception as error:
-        _print(
-            {
-                "status": "fatal",
-                "error": {
-                    "code": "UNEXPECTED_ERROR",
-                    "message_zh": str(error),
-                },
             }
         )
         return 2

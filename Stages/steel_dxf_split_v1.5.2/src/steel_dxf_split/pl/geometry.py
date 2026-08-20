@@ -10,10 +10,10 @@ from shapely.geometry import LineString, MultiPolygon, Polygon
 from shapely.ops import polygonize_full, unary_union
 
 from .contracts import (
-    PLMetadata,
-    PLSplitError,
-    PLSourceContext,
     PlateOutline,
+    PLMetadata,
+    PLSourceContext,
+    PLSplitError,
     SectionProof,
 )
 

@@ -31,6 +31,7 @@
 - `test_bh_weld_allowance_feature_binding.py` 锁定焊接余量特征绑定与切面契约。
 - `test_bh_development_rounding.py` 锁定来源/几何证明的 BH 派生翼缘长度向上取整到整数毫米。
 - `test_bh_slanted_flange_boundary.py` 锁定等高双翼缘展开保留真实斜切端边界，并保持正交投影矩形化。
+- `test_pl_splitter.py` 锁定独立 PL 输入解释、K=0.5 展开、0.1 mm 向上取整、等比拉伸、清洁 DXF 输出、批次报告和 BH/BOX 运行时隔离。
 
 依赖外部 DXF 样本的图纸回归测试,样本缺失时自动跳过;样本根目录可用环境变量指向
 Linux 本地路径(见 `backend/tests/support/sample_roots.py`)。测试不能调用真实

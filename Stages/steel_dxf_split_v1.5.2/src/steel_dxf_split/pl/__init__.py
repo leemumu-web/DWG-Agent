@@ -6,8 +6,8 @@ from .contracts import (
     PLCompilation,
     PLItemResult,
     PLMetadata,
-    PLSplitError,
     PLSourceContext,
+    PLSplitError,
 )
 
 __all__ = [
