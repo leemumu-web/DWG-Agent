@@ -271,6 +271,137 @@ def test_flange_search_uses_the_shared_face_union_budget() -> None:
     )
 
 
+def test_face_union_search_rejects_out_of_span_subsets_before_union(
+    monkeypatch,
+) -> None:
+    import steel_dxf_split.box.projection_geometry as geometry
+
+    faces = (
+        Polygon(((0, 0), (10, 0), (10, 1), (0, 1))),
+        Polygon(((0, 1), (10, 1), (10, 2), (0, 2))),
+        Polygon(((0, 2), (10, 2), (10, 3), (0, 3))),
+    )
+    monkeypatch.setattr(
+        geometry,
+        "polygonize_part_projection",
+        lambda *args, **kwargs: faces,
+    )
+    monkeypatch.setattr(geometry, "_source_curves", lambda *args, **kwargs: ())
+    monkeypatch.setattr(geometry, "_assess_candidate", lambda *args, **kwargs: None)
+
+    original_union = geometry.unary_union
+    calls: list[int] = []
+
+    def counted_union(items):
+        materialized = tuple(items)
+        calls.append(len(materialized))
+        return original_union(materialized)
+
+    monkeypatch.setattr(geometry, "unary_union", counted_union)
+    result = geometry.search_source_conserving_face_unions(
+        (),
+        ViewFrame(
+            origin=(0.0, 0.0),
+            longitudinal_axis=(1.0, 0.0),
+            transverse_axis=(0.0, 1.0),
+            longitudinal_min=0.0,
+            longitudinal_max=10.0,
+            transverse_min=0.0,
+            transverse_max=3.0,
+        ),
+        target_transverse_mm=1.0,
+        transverse_tolerance_mm=0.01,
+        maximum_states=100,
+    )
+
+    assert result.subset_search_complete is True
+    assert result.states_visited == 5
+    # Two empty linework unions plus one maximal-component union are expected;
+    # no subset union may be a two-face union.
+    assert calls.count(2) == 0
+
+
+def test_face_union_search_skips_low_span_union_for_edge_connected_faces(
+    monkeypatch,
+) -> None:
+    import steel_dxf_split.box.projection_geometry as geometry
+
+    faces = (
+        Polygon(((0, 0), (10, 0), (10, 1), (0, 1))),
+        Polygon(((0, 1), (10, 1), (10, 2), (0, 2))),
+        Polygon(((0, 2), (10, 2), (10, 3), (0, 3))),
+    )
+    monkeypatch.setattr(
+        geometry,
+        "polygonize_part_projection",
+        lambda *args, **kwargs: faces,
+    )
+    monkeypatch.setattr(geometry, "_source_curves", lambda *args, **kwargs: ())
+    monkeypatch.setattr(
+        geometry,
+        "_assess_candidate",
+        lambda polygon, *args, **kwargs: ProjectionFaceCandidate(
+            polygon=polygon,
+            boundary_source_ids=(),
+            vertex_source_ids=(),
+            source_conserved=True,
+            grid_size_mm=0.001,
+        ),
+    )
+
+    original_union = geometry.unary_union
+    legacy_polygon = original_union(faces)
+    calls: list[int] = []
+    coverage_calls: list[int] = []
+
+    def counted_union(items):
+        materialized = tuple(items)
+        calls.append(len(materialized))
+        return original_union(materialized)
+
+    def counted_coverage(items):
+        materialized = tuple(items)
+        coverage_calls.append(len(materialized))
+        polygon = geometry._coverage_union_all_original(materialized)
+        coordinates = tuple(polygon.exterior.coords)
+        return Polygon((*coordinates[1:-1], coordinates[0]))
+
+    monkeypatch.setattr(geometry, "unary_union", counted_union)
+    monkeypatch.setattr(
+        geometry,
+        "_coverage_union_all_original",
+        getattr(geometry, "coverage_union_all", lambda items: None),
+        raising=False,
+    )
+    monkeypatch.setattr(geometry, "coverage_union_all", counted_coverage, raising=False)
+    result = geometry.search_source_conserving_face_unions(
+        (),
+        ViewFrame(
+            origin=(0.0, 0.0),
+            longitudinal_axis=(1.0, 0.0),
+            transverse_axis=(0.0, 1.0),
+            longitudinal_min=0.0,
+            longitudinal_max=10.0,
+            transverse_min=0.0,
+            transverse_max=3.0,
+        ),
+        target_transverse_mm=3.0,
+        transverse_tolerance_mm=0.01,
+        maximum_states=100,
+    )
+
+    assert result.subset_search_complete is True
+    assert result.states_visited == 6
+    # The full-span triple is the only subset that can be a candidate; all
+    # lower-span connected subsets are expanded using their exact face bounds.
+    assert calls.count(1) == 0
+    assert calls.count(2) == 0
+    assert coverage_calls == [3]
+    assert tuple(result.candidates[0].polygon.exterior.coords) == tuple(
+        legacy_polygon.exterior.coords
+    )
+
+
 def test_nested_cross_view_courses_reject_an_unbounded_span_expansion() -> None:
     assignment = _cross_view_assignment(
         ("visible", "XKITLINE00", (-100.0, 0.0), (100.0, 0.0)),

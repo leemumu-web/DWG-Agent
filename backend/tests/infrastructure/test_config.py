@@ -12,6 +12,24 @@ import pytest
 from app.platform.config.settings import Settings
 
 
+def test_dxf_split_cli_concurrency_defaults_to_serial_and_is_bounded():
+    assert Settings().dxf_split_cli_worker_concurrency == 1
+    with pytest.raises(ValueError):
+        Settings(dxf_split_cli_worker_concurrency=5)
+
+
+def test_dxf_split_cli_concurrency_uses_a_dedicated_environment_key(monkeypatch):
+    monkeypatch.delenv("DXF_SPLIT_WORKER_CONCURRENCY", raising=False)
+    monkeypatch.delenv("DXF_SPLIT_CLI_WORKER_CONCURRENCY", raising=False)
+    assert Settings().dxf_split_cli_worker_concurrency == 1
+
+    monkeypatch.setenv("DXF_SPLIT_WORKER_CONCURRENCY", "3")
+    assert Settings().dxf_split_cli_worker_concurrency == 1
+
+    monkeypatch.setenv("DXF_SPLIT_CLI_WORKER_CONCURRENCY", "2")
+    assert Settings().dxf_split_cli_worker_concurrency == 2
+
+
 def test_super_admin_username_default_matches_production_account_contract():
     assert Settings.model_fields["super_admin_username"].default == "super_admin"
 

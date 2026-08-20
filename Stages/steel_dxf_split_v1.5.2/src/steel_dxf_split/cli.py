@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import sys
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from time import perf_counter
 
@@ -17,6 +18,16 @@ from .pipeline import SplitOptions, SplitResult, split_classified_dxf
 QUANTITY_CHECK_INTERVAL = 30
 
 CLASSIFIED_INPUT_SCHEMA = "STEEL-DXF-CLASSIFIED-SPLIT-INPUT-1.0"
+
+
+def _positive_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("必须是正整数") from exc
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("必须是正整数")
+    return parsed
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -64,6 +75,13 @@ def build_parser() -> argparse.ArgumentParser:
             "精简报告：report.json 只保留验收所需字段，不生成 PNG 预览；"
             "weld_allowance_report.json 照常生成。BH 与 BOX 均生效。"
         ),
+    )
+    parser.add_argument(
+        "--workers",
+        type=_positive_int,
+        default=1,
+        metavar="N",
+        help="独立图纸处理进程数；默认 1，必须是正整数。",
     )
     return parser
 
@@ -216,6 +234,88 @@ def _verify_quantity_checkpoint(
         )
 
 
+def _run_split_task(
+    input_path: Path,
+    output_dir: Path,
+    options: SplitOptions,
+    family: str,
+) -> dict[str, object]:
+    """Run one isolated drawing; only the parent publishes batch state."""
+
+    started = perf_counter()
+    try:
+        result = split_classified_dxf(
+            input_path,
+            output_dir,
+            options,
+            family=family,
+        )
+    except Exception as exc:
+        return {
+            "input_path": input_path,
+            "result": None,
+            "processing_seconds": perf_counter() - started,
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+        }
+    return {
+        "input_path": input_path,
+        "result": result,
+        "processing_seconds": perf_counter() - started,
+        "error_type": None,
+        "error": None,
+    }
+
+
+def _failed_split_task(
+    input_path: Path,
+    exc: Exception,
+) -> dict[str, object]:
+    return {
+        "input_path": input_path,
+        "result": None,
+        "processing_seconds": 0.0,
+        "error_type": type(exc).__name__,
+        "error": str(exc),
+    }
+
+
+def _iter_split_tasks(
+    inputs: tuple[Path, ...],
+    output_dir: Path,
+    options: SplitOptions,
+    classified_inputs: dict[Path, str],
+    *,
+    workers: int,
+):
+    if workers == 1:
+        for input_path in inputs:
+            yield _run_split_task(
+                input_path,
+                output_dir,
+                options,
+                classified_inputs[input_path],
+            )
+        return
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        futures = {
+            executor.submit(
+                _run_split_task,
+                input_path,
+                output_dir,
+                options,
+                classified_inputs[input_path],
+            ): input_path
+            for input_path in inputs
+        }
+        for future in as_completed(futures):
+            input_path = futures[future]
+            try:
+                yield future.result()
+            except Exception as exc:
+                yield _failed_split_task(input_path, exc)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
@@ -255,29 +355,40 @@ def main(argv: list[str] | None = None) -> int:
             print(f"错误：BOX 生产认证不可用：{exc}", file=sys.stderr)
             return 3
     summaries: list[dict[str, object]] = []
-    results: list[SplitResult] = []
+    summary_entries: list[tuple[Path, dict[str, object]]] = []
+    result_entries: list[tuple[Path, SplitResult]] = []
     failures = 0
     auto_accepted_count = 0
     manual_review_count = 0
-    for processed_count, input_path in enumerate(inputs, start=1):
-        processing_started = perf_counter()
-        try:
-            result = split_classified_dxf(
-                input_path,
-                args.output_dir,
-                options,
-                family=classified_inputs[input_path],
-            )
-        except Exception as exc:
+    for processed_count, task in enumerate(
+        _iter_split_tasks(
+            inputs,
+            args.output_dir,
+            options,
+            classified_inputs,
+            workers=args.workers,
+        ),
+        start=1,
+    ):
+        input_path = task["input_path"]
+        if not isinstance(input_path, Path):
+            input_path = Path(str(input_path))
+        error_type = task.get("error_type")
+        error = task.get("error")
+        result = task.get("result")
+        if error_type is not None or error is not None or result is None:
             failures += 1
-            summaries.append(
-                {
-                    "input": str(input_path),
-                    "compiler_version": __version__,
-                    "automation_route": "failed",
-                    "error_type": type(exc).__name__,
-                    "error": str(exc),
-                }
+            summary_entries.append(
+                (
+                    input_path,
+                    {
+                        "input": str(input_path),
+                        "compiler_version": __version__,
+                        "automation_route": "failed",
+                        "error_type": str(error_type or "WorkerError"),
+                        "error": str(error or "split task returned no result"),
+                    },
+                )
             )
             if (
                 processed_count % QUANTITY_CHECK_INTERVAL == 0
@@ -285,7 +396,7 @@ def main(argv: list[str] | None = None) -> int:
             ):
                 _verify_quantity_checkpoint(
                     processed_count=processed_count,
-                    result_count=len(summaries),
+                    result_count=len(summary_entries),
                     auto_accepted_count=auto_accepted_count,
                     manual_review_count=manual_review_count,
                     failed_count=failures,
@@ -300,13 +411,13 @@ def main(argv: list[str] | None = None) -> int:
             )
             continue
         if isinstance(result, SplitResult):
-            results.append(result)
+            result_entries.append((input_path, result))
         summary = result.to_summary(
             input_path=input_path,
             compiler_version=__version__,
-            processing_seconds=perf_counter() - processing_started,
+            processing_seconds=float(task.get("processing_seconds", 0.0)),
         )
-        summaries.append(summary)
+        summary_entries.append((input_path, summary))
         if summary.get("automation_route") == "auto_accepted":
             auto_accepted_count += 1
         else:
@@ -317,7 +428,7 @@ def main(argv: list[str] | None = None) -> int:
         ):
             _verify_quantity_checkpoint(
                 processed_count=processed_count,
-                result_count=len(summaries),
+                result_count=len(summary_entries),
                 auto_accepted_count=auto_accepted_count,
                 manual_review_count=manual_review_count,
                 failed_count=failures,
@@ -330,6 +441,21 @@ def main(argv: list[str] | None = None) -> int:
             manual_review_count=manual_review_count,
             failed_count=failures,
         )
+    input_order = {input_path: index for index, input_path in enumerate(inputs)}
+    summaries = [
+        summary
+        for _input_path, summary in sorted(
+            summary_entries,
+            key=lambda item: input_order[item[0]],
+        )
+    ]
+    results = [
+        result
+        for _input_path, result in sorted(
+            result_entries,
+            key=lambda item: input_order[item[0]],
+        )
+    ]
     try:
         publish_bh_project_ledger(results, args.output_dir)
     except Exception as exc:

@@ -115,6 +115,8 @@ bucket 默认值为 `MINIO_BUCKET_ORIGINAL=dwg-original`、`MINIO_BUCKET_DERIVED
 | `DXF_CLASSIFICATION_TIMEOUT_SECONDS` | 1800 | 分类器 CLI 子进程超时，限制为 30-7200 秒 |
 | `DXF_CLASSIFICATION_WORKER_CONCURRENCY` | 3 | 分类队列固定的项目级并发 Job 数；修改后必须重启分类 worker |
 | `DXF_SPLIT_TIMEOUT_SECONDS` | 3600 | 整批 BH/BOX 拆板 CLI 子进程超时，限制为 30-14400 秒；单张业务复核不提前终止整批 |
+| `DXF_SPLIT_CLI_WORKER_CONCURRENCY` | 1（生产模板为 2） | 单个拆板 CLI 批次内部的有界进程数（1-4）；与 Celery 队列的 `DXF_SPLIT_WORKER_CONCURRENCY` 独立，修改后重启拆板 worker；启用 2 时将 `DXF_SPLIT_WORKER_MEMORY_LIMIT` 设为至少 8g |
+| `DXF_SPLIT_WORKER_CONCURRENCY` | 1 | `dxf_split` Celery 队列的 worker 进程数；不控制 CLI 内部进程池，避免嵌套并发误配 |
 | `DXF_WORKER_CONCURRENCY` | 8 | 本地与 Compose 的 DWG -> DXF Celery prefork 数 |
 | `DXF2DWG_WORKER_CONCURRENCY` | 8 | 本地与 Compose 的 DXF -> DWG Celery prefork 数 |
 | `DXF_WORKER_DISPLAY` | `:91` | DWG -> DXF worker 独占的持久 Xvfb display |

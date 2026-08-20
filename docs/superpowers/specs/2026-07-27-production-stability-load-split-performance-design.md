@@ -39,7 +39,7 @@
 
 ### 4. 拆板并发矩阵
 
-拆板 CLI 当前在一个 Job 内串行处理整批图纸，Celery `worker-dxf-split` 负责多个项目并行。服务器有 16 个低单核性能虚拟 CPU、62 GiB 内存和虚拟旋转盘，因此只比较整批 Job 并发 1、2、4；只有 4 未出现 I/O 等待、尾延迟或失败恶化时才试 6。
+拆板 CLI 默认在一个 Job 内串行处理整批图纸，Celery `worker-dxf-split` 负责多个项目并行；通过独立的 `DXF_SPLIT_CLI_WORKER_CONCURRENCY` 可在单个 Job 内启用有界进程池，不能复用控制 Celery 队列的 `DXF_SPLIT_WORKER_CONCURRENCY`。服务器有 16 个低单核性能虚拟 CPU、62 GiB 内存和虚拟旋转盘，因此只比较整批 Job 并发 1、2、4；只有 4 未出现 I/O 等待、尾延迟或失败恶化时才试 6。当前生产模板采用 Job 并发 1、CLI 内部并发 2，并为拆板 worker 保留至少 8 GiB 内存。
 
 每个档位使用相同项目数和图纸数，至少重复两轮。最终参数必须同时满足：
 

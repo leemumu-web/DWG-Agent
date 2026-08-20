@@ -5,7 +5,7 @@ from dataclasses import dataclass, replace
 from heapq import heappop, heappush
 from math import atan, atan2, ceil, cos, degrees, hypot, isfinite, radians, sin, tan
 
-from shapely import set_precision
+from shapely import coverage_union_all, set_precision
 from shapely.geometry import LineString, MultiLineString, Point, Polygon
 from shapely.ops import polygonize, substring, unary_union
 
@@ -2808,6 +2808,14 @@ def search_source_conserving_face_unions(
     search.  This deterministic maximal-material lane is not a replacement for
     non-maximal physical faces; it keeps the strongest direct outline available
     even when overlay partitioning exhausts the subset budget.
+
+    For valid, non-empty polygonized faces, every subset reached by
+    ``subset_adjacency`` is edge-connected.  Its union is therefore a single
+    connected Polygon, so a subset whose exact face-bound span is below the
+    target can be expanded without materializing a Shapely union.  The union is
+    still materialized for target-span subsets (candidate assessment) and for
+    any face list that does not satisfy this certificate; the latter preserves
+    the original fail-closed type check for unusual geometry.
     """
 
     if target_transverse_mm <= 0:
@@ -2831,6 +2839,13 @@ def search_source_conserving_face_unions(
             connected_maximal_candidate_count=0,
             diagnostics=(),
         )
+    face_transverse_bounds = tuple(
+        (float(face.bounds[1]), float(face.bounds[3])) for face in faces
+    )
+    polygonal_face_union_certified = all(
+        isinstance(face, Polygon) and face.is_valid and not face.is_empty
+        for face in faces
+    )
     tolerance = (
         transverse_tolerance_mm
         if transverse_tolerance_mm is not None
@@ -2964,9 +2979,12 @@ def search_source_conserving_face_unions(
         stop = False
         for component in subset_components:
             for seed in sorted(component):
-                stack = [frozenset((seed,))]
+                seed_min, seed_max = face_transverse_bounds[seed]
+                stack: list[tuple[frozenset[int], float, float]] = [
+                    (frozenset((seed,)), seed_min, seed_max)
+                ]
                 while stack:
-                    subset = stack.pop()
+                    subset, min_transverse, max_transverse = stack.pop()
                     if subset in seen:
                         continue
                     if len(seen) >= maximum_states:
@@ -2974,10 +2992,25 @@ def search_source_conserving_face_unions(
                         stop = True
                         break
                     seen.add(subset)
-                    merged = unary_union([faces[index] for index in subset])
-                    if not isinstance(merged, Polygon):
+                    bounded_transverse = max_transverse - min_transverse
+                    if bounded_transverse > target_transverse_mm + tolerance:
                         continue
-                    transverse = float(merged.bounds[3] - merged.bounds[1])
+                    used_coverage_union = False
+                    if (
+                        bounded_transverse < target_transverse_mm - tolerance
+                        and polygonal_face_union_certified
+                    ):
+                        transverse = bounded_transverse
+                    else:
+                        used_coverage_union = polygonal_face_union_certified
+                        merged = (
+                            coverage_union_all([faces[index] for index in subset])
+                            if polygonal_face_union_certified
+                            else unary_union([faces[index] for index in subset])
+                        )
+                        if not isinstance(merged, Polygon):
+                            continue
+                        transverse = float(merged.bounds[3] - merged.bounds[1])
                     if abs(transverse - target_transverse_mm) <= tolerance:
                         candidate = _assess_candidate(
                             merged,
@@ -2985,6 +3018,25 @@ def search_source_conserving_face_unions(
                             grid_size_mm=grid_size_mm,
                             endpoint_tolerance_mm=endpoint_tolerance_mm,
                         )
+                        if candidate is not None and used_coverage_union:
+                            # Keep the legacy unary-union boundary ordering for
+                            # published contours.  This is paid only for a
+                            # source-valid candidate, not for the thousands of
+                            # exploratory subsets that are rejected by
+                            # _assess_candidate.
+                            legacy_merged = unary_union(
+                                [faces[index] for index in subset]
+                            )
+                            candidate = (
+                                _assess_candidate(
+                                    legacy_merged,
+                                    curves,
+                                    grid_size_mm=grid_size_mm,
+                                    endpoint_tolerance_mm=endpoint_tolerance_mm,
+                                )
+                                if isinstance(legacy_merged, Polygon)
+                                else None
+                            )
                         if candidate is not None:
                             retain(candidate)
                     if transverse > target_transverse_mm + tolerance:
@@ -2996,7 +3048,14 @@ def search_source_conserving_face_unions(
                         neighbors.intersection(component).difference(subset),
                         reverse=True,
                     ):
-                        stack.append(subset | {neighbor})
+                        neighbor_min, neighbor_max = face_transverse_bounds[neighbor]
+                        stack.append(
+                            (
+                                subset | {neighbor},
+                                min(min_transverse, neighbor_min),
+                                max(max_transverse, neighbor_max),
+                            )
+                        )
                 if stop:
                     break
             if stop:

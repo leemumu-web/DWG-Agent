@@ -226,7 +226,7 @@ services:
       DWG_WORKER_QUEUE: dxf_split
       DWG_WORKER_CONCURRENCY: "${DXF_SPLIT_WORKER_CONCURRENCY:-1}"
     cpus: "${DXF_SPLIT_WORKER_CPU_LIMIT:-2.0}"
-    mem_limit: "${DXF_SPLIT_WORKER_MEMORY_LIMIT:-4g}"
+    mem_limit: "${DXF_SPLIT_WORKER_MEMORY_LIMIT:-8g}"
     pids_limit: ${DXF_SPLIT_WORKER_PIDS_LIMIT:-128}
 
   worker-remnant-convert:

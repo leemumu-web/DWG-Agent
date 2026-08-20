@@ -137,6 +137,11 @@ Python 源码，应用/worker 以非 root、只读根文件系统、`cap_drop: A
 `MINIO_METRICS_URL` 未配置时由 `MINIO_ENDPOINT` 自动补成
 `/minio/v2/metrics/cluster`；只有经过反向代理或使用非标准指标路径时才需显式覆盖。
 
+拆板 worker 的两个并发参数含义不同：`DXF_SPLIT_WORKER_CONCURRENCY` 只控制
+Celery `dxf_split` 队列可同时执行的 Job 数，`DXF_SPLIT_CLI_WORKER_CONCURRENCY`
+控制单个 Job 内部的 DXF 进程池。生产模板在全量等价性门禁后使用后者为 2、前者为 1；
+不要把两个变量混用。启用内部 2 进程时，拆板 worker 容器内存上限应不低于 8 GiB。
+
 ## 服务行为
 
 | 服务 | 默认/profile | 持久化 | 健康含义 |

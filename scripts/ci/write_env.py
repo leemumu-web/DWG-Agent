@@ -89,6 +89,10 @@ def main() -> None:
         "DWG_WORKER_CONCURRENCY": "1",
         "DXF2DWG_WORKER_CONCURRENCY": "1",
         "DXF_CLASSIFICATION_WORKER_CONCURRENCY": "1",
+        # CI runners stay on the serial CLI path; production templates use
+        # the validated two-process inner pool.
+        "DXF_SPLIT_CLI_WORKER_CONCURRENCY": "1",
+        "DXF_SPLIT_WORKER_MEMORY_LIMIT": "2g",
         "REMNANT_PARSE_WORKER_CONCURRENCY": "1",
         # GitHub-hosted runners currently expose 2 vCPUs. Production limits
         # may be higher, but Docker rejects any single container limit above

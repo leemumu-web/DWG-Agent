@@ -109,6 +109,11 @@ class Settings(BaseSettings):
     # Frozen classified DXF split processing
     dxf_split_pipeline_enabled: bool = False
     dxf_split_timeout_seconds: int = Field(default=3600, ge=30, le=14400)
+    # Keep the CLI's per-batch fan-out serial by default. This setting is
+    # intentionally separate from DXF_SPLIT_WORKER_CONCURRENCY, which belongs
+    # to the Celery queue process and must not silently create nested fan-out.
+    # The CLI enforces the same lower bound.
+    dxf_split_cli_worker_concurrency: int = Field(default=1, ge=1, le=4)
     # Split reports and paired DXFs can exceed the container's bounded /tmp
     # tmpfs. Keep per-attempt scratch data on the writable app_var volume.
     dxf_split_work_root: Path = _BACKEND_DIR / "var" / "dxf-split-work"

@@ -1155,6 +1155,53 @@ def test_adapter_uses_pinned_source_contracts_and_version(monkeypatch, tmp_path)
     ]
 
 
+def test_adapter_passes_explicit_bounded_split_concurrency(monkeypatch, tmp_path):
+    captured: list[list[str]] = []
+
+    class Process:
+        returncode = 1
+
+        def __init__(self, command, **_kwargs):
+            captured.append(command)
+
+        def communicate(self, timeout=None):
+            return (
+                json.dumps(
+                    [
+                        {
+                            "input": str(tmp_path / "BH-1_拆板前.dxf"),
+                            "compiler_version": "1.5.2",
+                            "automation_route": "manual_review",
+                        }
+                    ]
+                ),
+                "",
+            )
+
+        def kill(self):
+            self.returncode = -9
+
+    monkeypatch.setattr(split_adapter.subprocess, "Popen", Process)
+    monkeypatch.setattr(
+        split_adapter.settings,
+        "dxf_split_cli_worker_concurrency",
+        2,
+    )
+    classification_manifest = _write_adapter_manifest(
+        tmp_path / "classified-input.json"
+    )
+
+    split_adapter.invoke_splitter(
+        tmp_path,
+        tmp_path.parent / "output",
+        classification_manifest=classification_manifest,
+        expected_input_count=1,
+    )
+
+    assert "--workers" in captured[0]
+    assert captured[0][captured[0].index("--workers") + 1] == "2"
+
+
 def test_adapter_streams_monotonic_progress_to_platform_callback(monkeypatch, tmp_path):
     callbacks: list[tuple[int, int, int, int, int]] = []
 
@@ -1517,6 +1564,122 @@ def test_stage_cli_publishes_atomic_per_file_progress(monkeypatch, tmp_path):
         "auto_accepted_count": 0,
         "manual_review_count": 2,
         "failed_count": 0,
+    }
+
+
+def test_stage_cli_parallel_results_are_ordered_and_ledger_is_published_once(
+    monkeypatch,
+    tmp_path,
+    capsys,
+):
+    from steel_dxf_split import cli as split_cli
+
+    input_directory = tmp_path / "input"
+    output_directory = tmp_path / "output"
+    progress_path = tmp_path / "progress.json"
+    input_directory.mkdir()
+    names = ("B-1_拆板前.dxf", "B-2_拆板前.dxf", "B-3_拆板前.dxf")
+    for name in names:
+        (input_directory / name).write_bytes(b"fixture")
+    classification_manifest = input_directory.parent / "classified-input.json"
+    classification_manifest.write_text(
+        json.dumps(
+            {
+                "schema": split_adapter.CLASSIFIED_INPUT_SCHEMA,
+                "items": [
+                    {"file_name": name, "family": "BH"} for name in names
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+
+    class FakeResult:
+        def __init__(self, route: str):
+            self.route = route
+
+        def to_summary(self, *, input_path, compiler_version, processing_seconds):
+            return {
+                "input": str(input_path),
+                "compiler_version": compiler_version,
+                "processing_seconds": processing_seconds,
+                "automation_route": self.route,
+                "disposition": "fixture",
+            }
+
+    def split_classified(input_path, *_args, family, **_kwargs):
+        assert family == "BH"
+        if input_path.name == names[2]:
+            raise RuntimeError("fixture failure")
+        route = "auto_accepted" if input_path.name == names[0] else "manual_review"
+        return FakeResult(route)
+
+    class FakeFuture:
+        def __init__(self, value):
+            self.value = value
+
+        def result(self):
+            return self.value
+
+    class FakeExecutor:
+        def __init__(self, *, max_workers):
+            assert max_workers == 2
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def submit(self, function, *args):
+            return FakeFuture(function(*args))
+
+    published: list[tuple[object, ...]] = []
+    monkeypatch.setattr(split_cli, "split_classified_dxf", split_classified)
+    monkeypatch.setattr(split_cli, "ProcessPoolExecutor", FakeExecutor)
+    monkeypatch.setattr(
+        split_cli,
+        "as_completed",
+        lambda futures: reversed(tuple(futures)),
+    )
+    monkeypatch.setattr(
+        split_cli,
+        "publish_bh_project_ledger",
+        lambda results, *_args: published.append(tuple(results)),
+    )
+
+    exit_code = split_cli.main(
+        [
+            str(input_directory),
+            "--output-dir",
+            str(output_directory),
+            "--classification-manifest",
+            str(classification_manifest),
+            "--workers",
+            "2",
+            "--progress-json",
+            str(progress_path),
+        ]
+    )
+
+    assert exit_code == 2
+    summaries = json.loads(capsys.readouterr().out)
+    assert [Path(item["input"]).name for item in summaries] == list(names)
+    assert [item["automation_route"] for item in summaries] == [
+        "auto_accepted",
+        "manual_review",
+        "failed",
+    ]
+    assert len(published) == 1
+    assert len(published[0]) == 0
+    assert json.loads(progress_path.read_text(encoding="utf-8")) == {
+        "schema": "STEEL-DXF-SPLIT-PROGRESS-1",
+        "processed_count": 3,
+        "input_count": 3,
+        "auto_accepted_count": 1,
+        "manual_review_count": 1,
+        "failed_count": 1,
     }
 
 

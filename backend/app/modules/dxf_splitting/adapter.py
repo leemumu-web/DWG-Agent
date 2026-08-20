@@ -114,6 +114,9 @@ def invoke_splitter(
         "--progress-json",
         str(progress_path),
     ]
+    worker_concurrency = settings.dxf_split_cli_worker_concurrency
+    if worker_concurrency > 1:
+        command.extend(("--workers", str(worker_concurrency)))
     process = subprocess.Popen(
         command,
         stdout=subprocess.PIPE,
