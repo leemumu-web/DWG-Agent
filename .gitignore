@@ -32,6 +32,7 @@ playwright-report/
 .nyc_output/
 .playwright-cli/
 .superpowers/
+/.worktrees/
 
 # --- Caches ---
 __pycache__/
