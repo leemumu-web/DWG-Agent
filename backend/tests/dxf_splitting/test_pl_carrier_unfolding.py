@@ -671,6 +671,19 @@ def test_adjacent_turn_fragments_form_one_carrier_zone() -> None:
     assert select_carrier_zone(intervals) == ((1, 2), "paired_visible_turn")
 
 
+def test_unique_longest_paired_turn_group_wins_over_short_end_fragments() -> None:
+    intervals = (
+        _interval(0, 0.0, 4.0, upper_dy=0.2, lower_dy=-0.2),
+        _interval(1, 4.0, 34.0, upper_dy=30.0, lower_dy=-30.0),
+        _interval(2, 34.0, 35.0, upper_dy=4.0, lower_dy=-4.0),
+        _interval(3, 35.0, 485.0),
+        _interval(4, 485.0, 785.0, upper_dy=-60.0, lower_dy=60.0),
+        _interval(5, 785.0, 1085.0),
+    )
+
+    assert select_carrier_zone(intervals) == ((4,), "paired_visible_turn")
+
+
 def test_longest_body_tie_within_one_tenth_fails_closed() -> None:
     intervals = (
         _interval(0, 0.0, 500.0),
@@ -817,6 +830,25 @@ def test_longitudinal_asymmetric_collinear_fragmentation_does_not_add_stations()
     assert set(proof.intervals[0].upper_entity_indices) >= {0, 1}
 
 
+def test_short_terminal_collinear_fragment_creates_an_end_interval() -> None:
+    entities, polygon = _line_outline(
+        (
+            (0.0, 100.0),
+            (800.0, 100.0),
+            (800.0, 0.0),
+            (780.0, 0.0),
+            (0.0, 0.0),
+        )
+    )
+
+    proof = analyze_longitudinal_outline(entities, polygon, thickness_mm=30.0)
+
+    assert proof.carrier_interval_indices == (0,)
+    assert proof.selection_reason == "unique_longest_body"
+    assert tuple(interval.index for interval in proof.intervals) == (0, 1)
+    assert proof.intervals[1].is_end_feature
+
+
 @pytest.mark.parametrize(
     ("order", "reverse_directions"),
     [
@@ -955,6 +987,33 @@ def test_near_opposite_independent_ledges_project_above_station_limit() -> None:
     assert proof.selection_reason == "unique_longest_body"
 
 
+def test_sub_tolerance_opposite_chain_wobble_is_not_a_paired_turn() -> None:
+    document = ezdxf.new()
+    modelspace = document.modelspace()
+    entities = tuple(
+        modelspace.add_line(start, end, dxfattribs={"layer": "Part"})
+        for start, end in (
+            ((902.999, 275.0), (602.5, 275.0)),
+            ((302.5, 0.0), (303.0, 0.0)),
+            ((303.0, 0.0), (603.0, 75.0)),
+            ((602.5, 275.0), (303.0, 350.0)),
+            ((603.0, 75.0), (903.0, 75.002)),
+            ((903.0, 75.002), (902.999, 275.0)),
+            ((0.0, 0.0), (0.0, 350.0)),
+            ((0.0, 350.0), (303.0, 350.0)),
+            ((302.5, 0.0), (0.0, 0.0)),
+            ((603.0, 75.0), (602.5, 74.9)),
+        )
+    )
+    polygon = validate_closed_outline(entities, tolerance_mm=0.1)
+
+    proof = analyze_longitudinal_outline(entities, polygon, thickness_mm=30.0)
+
+    assert proof.carrier_interval_indices == (1,)
+    assert proof.selection_reason == "paired_visible_turn"
+    assert tuple(interval.index for interval in proof.intervals) == (0, 1, 2)
+
+
 def test_mixed_native_curve_is_segmented_into_longitudinal_and_end_chains() -> None:
     entities, polygon = _mixed_curve_outline()
 
@@ -1044,3 +1103,202 @@ def test_station_band_just_over_strict_limit_is_rejected() -> None:
         analyze_longitudinal_outline(entities, polygon, thickness_mm=30.0)
 
     assert error.value.code == "STATION_BAND_TOO_WIDE"
+
+
+def test_contained_native_boundary_fragment_does_not_create_a_false_branch() -> None:
+    document = ezdxf.new()
+    modelspace = document.modelspace()
+    entities = tuple(
+        modelspace.add_line(start, end, dxfattribs={"layer": "Part"})
+        for start, end in (
+            ((0.0, 100.0), (800.0, 100.0)),
+            ((800.0, 100.0), (800.0, 0.0)),
+            ((800.0, 0.0), (0.0, 0.0)),
+            ((0.0, 0.0), (0.0, 100.0)),
+            ((0.0, 100.0), (300.0, 100.0)),
+        )
+    )
+
+    proof = analyze_longitudinal_outline(
+        entities,
+        Polygon(((0.0, 0.0), (800.0, 0.0), (800.0, 100.0), (0.0, 100.0))),
+        thickness_mm=30.0,
+    )
+
+    assert proof.carrier_interval_indices == (0,)
+    assert proof.selection_reason == "unique_longest_body"
+    assert tuple(interval.index for interval in proof.intervals) == (0,)
+
+    transformed, _ = transform_outline(
+        entities,
+        longitudinal=proof,
+        projection_length_mm=800.0,
+        k_length_mm=820.0,
+        bom_length_mm=810.0,
+        anchor_x_mm=0.0,
+    )
+
+    assert len(transformed) == 4
+    assert validate_closed_outline(transformed).area == pytest.approx(82_000.0)
+
+
+def test_reentrant_end_chain_ledge_stays_out_of_longitudinal_courses() -> None:
+    entities, polygon = _line_outline(
+        (
+            (0.0, 240.0),
+            (450.0, 240.0),
+            (700.0, 200.0),
+            (960.0, 200.0),
+            (960.0, 40.0),
+            (700.0, 40.0),
+            (450.0, 0.0),
+            (90.0, 0.0),
+            (130.0, 90.0),
+            (0.0, 140.0),
+        )
+    )
+
+    proof = analyze_longitudinal_outline(entities, polygon, thickness_mm=30.0)
+
+    assert proof.carrier_interval_indices == (3,)
+    assert proof.selection_reason == "paired_visible_turn"
+    assert tuple(interval.index for interval in proof.intervals) == (0, 1, 2, 3, 4)
+
+
+def test_asymmetric_pointed_end_offsets_project_to_independent_stations() -> None:
+    entities, polygon = _line_outline(
+        (
+            (0.0, 175.0),
+            (170.0, 300.0),
+            (1300.0, 300.0),
+            (1300.0, 0.0),
+            (30.0, 0.0),
+        )
+    )
+
+    proof = analyze_longitudinal_outline(entities, polygon, thickness_mm=35.0)
+
+    stations = (
+        *(interval.left_station for interval in proof.intervals),
+        proof.intervals[-1].right_station,
+    )
+    assert tuple((station.upper_x_mm, station.lower_x_mm) for station in stations) == (
+        (0.0, 0.0),
+        (30.0, 30.0),
+        (170.0, 170.0),
+        (1300.0, 1300.0),
+    )
+    assert proof.carrier_interval_indices == (2,)
+    assert proof.selection_reason == "unique_longest_body"
+
+
+def test_overlapping_collinear_boundary_fragments_are_canonicalized(
+    tmp_path: Path,
+) -> None:
+    document = ezdxf.new()
+    modelspace = document.modelspace()
+    entities = tuple(
+        modelspace.add_line(start, end, dxfattribs={"layer": "Part"})
+        for start, end in (
+            ((0.0, 100.0), (600.0, 100.0)),
+            ((400.0, 100.0), (800.0, 100.0)),
+            ((800.0, 100.0), (800.0, 0.0)),
+            ((800.0, 0.0), (0.0, 0.0)),
+            ((0.0, 0.0), (0.0, 100.0)),
+        )
+    )
+    polygon = validate_closed_outline(entities, tolerance_mm=0.1)
+
+    proof = analyze_longitudinal_outline(entities, polygon, thickness_mm=30.0)
+
+    assert proof.carrier_interval_indices == (0,)
+    assert proof.selection_reason == "unique_longest_body"
+    assert tuple(interval.index for interval in proof.intervals) == (0,)
+
+    transformed, metrics = transform_outline(
+        entities,
+        longitudinal=proof,
+        projection_length_mm=800.0,
+        k_length_mm=820.0,
+        bom_length_mm=810.0,
+        anchor_x_mm=0.0,
+    )
+
+    assert validate_closed_outline(transformed).area == pytest.approx(82_000.0)
+
+    from steel_dxf_split.pl.writer import write_pl_dxf
+
+    developed = DevelopedPlate(
+        metadata=PLMetadata("anonymous-overlap", 30.0, 100.0, 810.0),
+        outline=PlateOutline(
+            outer_entities=entities,
+            polygon=polygon,
+            projection_length_mm=800.0,
+            width_mm=100.0,
+            anchor_x_mm=0.0,
+            source_handles=(),
+            candidate_count=1,
+        ),
+        section=SectionProof(
+            polygon=Polygon(((0.0, -30.0), (820.0, -30.0), (820.0, 0.0), (0.0, 0.0))),
+            k_length_mm=820.0,
+            equivalent_surface_lengths_mm=(820.0, 820.0),
+            proof_method="section_area_over_thickness_k_half",
+            source_handles=(),
+            candidate_count=1,
+        ),
+        longitudinal=proof,
+        transformed_entities=transformed,
+        metrics=metrics,
+    )
+    write_pl_dxf(developed, tmp_path / "overlap.dxf")
+
+
+def test_sub_tolerance_line_wobble_does_not_create_turn_stations() -> None:
+    document = ezdxf.new()
+    modelspace = document.modelspace()
+    entities = tuple(
+        modelspace.add_line(start, end, dxfattribs={"layer": "Part"})
+        for start, end in (
+            ((0.0, 100.0), (150.0, 100.03)),
+            ((100.0, 100.02), (200.0, 100.04)),
+            ((200.0, 100.04), (400.0, 100.0)),
+            ((400.0, 100.0), (800.0, 100.05)),
+            ((800.0, 100.05), (800.0, 0.0)),
+            ((800.0, 0.0), (300.0, 0.03)),
+            ((300.0, 0.03), (0.0, 0.0)),
+            ((0.0, 0.0), (0.0, 100.0)),
+        )
+    )
+    polygon = validate_closed_outline(entities, tolerance_mm=0.1)
+
+    proof = analyze_longitudinal_outline(entities, polygon, thickness_mm=30.0)
+
+    assert proof.carrier_interval_indices == (0,)
+    assert proof.selection_reason == "unique_longest_body"
+    assert tuple(interval.index for interval in proof.intervals) == (0,)
+
+
+def test_opposite_short_end_offsets_keep_a_trailing_station_band() -> None:
+    entities, polygon = _line_outline(
+        (
+            (0.0, 100.0),
+            (790.0, 100.0),
+            (800.0, 0.0),
+            (10.0, 0.0),
+        )
+    )
+
+    proof = analyze_longitudinal_outline(entities, polygon, thickness_mm=30.0)
+
+    stations = (
+        *(interval.left_station for interval in proof.intervals),
+        proof.intervals[-1].right_station,
+    )
+    assert tuple((station.upper_x_mm, station.lower_x_mm) for station in stations) == (
+        (0.0, 0.0),
+        (10.0, 10.0),
+        (790.0, 800.0),
+    )
+    assert proof.carrier_interval_indices == (1,)
+    assert proof.selection_reason == "unique_longest_body"

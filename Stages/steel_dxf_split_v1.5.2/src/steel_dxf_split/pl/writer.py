@@ -20,6 +20,7 @@ from steel_dxf_split.part_mark_layout import (
 
 from .contracts import DevelopedPlate, PLSplitError, PLWriteResult
 from .geometry import flatten_entity, validate_closed_outline
+from .longitudinal import canonical_boundary_entities
 
 _WINDOWS_CJK_DXF_FONT = "simsun.ttc"
 _DIMENSION_TOLERANCE_MM = 0.001
@@ -213,6 +214,7 @@ def _source_station_y(
     *,
     upper: bool,
 ) -> float:
+    source_entities = canonical_boundary_entities(developed.outline.outer_entities)
     intervals = developed.longitudinal.intervals
     adjacent = (
         (intervals[0],)
@@ -232,7 +234,7 @@ def _source_station_y(
         value
         for source_index in source_indices
         for value in _source_entity_y_values(
-            developed.outline.outer_entities[source_index],
+            source_entities[source_index],
             station_x,
         )
     )
@@ -469,7 +471,9 @@ def validate_saved_pl_dxf(
     try:
         document = load_document(target)
     except Exception as error:
-        raise PLSplitError("OUTPUT_LOAD_FAILED", f"结果 DXF 无法重新审计读取：{error}") from error
+        raise PLSplitError(
+            "OUTPUT_LOAD_FAILED", f"结果 DXF 无法重新审计读取：{error}"
+        ) from error
     if document.dxfversion != "AC1021":
         raise PLSplitError("OUTPUT_DXF_VERSION", "PL 结果必须是 R2007 DXF。")
     if int(document.header.get("$INSUNITS", 0)) != 4:

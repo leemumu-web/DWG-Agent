@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import ROUND_CEILING, Decimal
+from itertools import pairwise
 from math import acos, atan2, degrees, hypot, isfinite, tau
 from typing import cast
 
@@ -19,6 +20,7 @@ from .contracts import (
     PLSplitError,
 )
 from .geometry import validate_closed_outline
+from .longitudinal import canonical_boundary_entities
 
 K_FACTOR = 0.5
 _TENTH_MM = Decimal("0.1")
@@ -131,7 +133,7 @@ def _split_line(line: Line, stations: tuple[float, ...]) -> tuple[DXFEntity, ...
         )
     )
     pieces: list[DXFEntity] = []
-    for first, second in zip(parameters, parameters[1:], strict=False):
+    for first, second in pairwise(parameters):
         clone = line.copy()
         clone.dxf.start = start + delta * first
         clone.dxf.end = start + delta * second
@@ -180,7 +182,7 @@ def _split_arc(arc: Arc, stations: tuple[float, ...]) -> tuple[DXFEntity, ...]:
     parameters = (0.0, *relative, float(construction.param_span))
     start = float(construction.start_param)
     pieces: list[DXFEntity] = []
-    for first, second in zip(parameters, parameters[1:], strict=False):
+    for first, second in pairwise(parameters):
         clone = arc.copy()
         clone.dxf.start_angle = degrees(start + first) % 360.0
         clone.dxf.end_angle = degrees(start + second) % 360.0
@@ -199,7 +201,7 @@ def _split_ellipse(
     parameters = (0.0, *relative, float(construction.param_span))
     start = float(construction.start_param)
     pieces: list[DXFEntity] = []
-    for first, second in zip(parameters, parameters[1:], strict=False):
+    for first, second in pairwise(parameters):
         clone = ellipse.copy()
         clone.dxf.start_param = (start + first) % tau
         clone.dxf.end_param = (start + second) % tau
@@ -239,7 +241,8 @@ def _proof_contract(
     carrier = longitudinal.carrier_interval_indices
     if (
         not intervals
-        or tuple(interval.index for interval in intervals) != tuple(range(len(intervals)))
+        or tuple(interval.index for interval in intervals)
+        != tuple(range(len(intervals)))
         or not carrier
         or carrier != tuple(range(carrier[0], carrier[-1] + 1))
         or carrier[0] < 0
@@ -289,7 +292,9 @@ def _source_station_values(
     return tuple(_unique_sorted(tuple(source)) for source in values)
 
 
-def _interval_region(index: int, first_carrier: int, last_carrier: int, side: str) -> str:
+def _interval_region(
+    index: int, first_carrier: int, last_carrier: int, side: str
+) -> str:
     if index < first_carrier:
         return "identity"
     if index > last_carrier:
@@ -325,7 +330,9 @@ def _piece_region(
                 min(left_x, right_x),
             )
             if piece.source_index in indices and overlap > _NUMERIC_EPSILON:
-                regions.add(_interval_region(interval.index, first_carrier, last_carrier, side))
+                regions.add(
+                    _interval_region(interval.index, first_carrier, last_carrier, side)
+                )
     if len(regions) == 1:
         return regions.pop()
     if len(regions) > 1:
@@ -457,7 +464,8 @@ def _developed_intervals(
             is_carrier=interval.index in carrier,
         )
         if interval.index not in carrier and (
-            abs(metric.output_upper_span_mm - metric.source_upper_span_mm) > _DIMENSION_TOLERANCE_MM
+            abs(metric.output_upper_span_mm - metric.source_upper_span_mm)
+            > _DIMENSION_TOLERANCE_MM
             or abs(metric.output_lower_span_mm - metric.source_lower_span_mm)
             > _DIMENSION_TOLERANCE_MM
         ):
@@ -490,7 +498,7 @@ def transform_outline(
     bom_length_mm: float,
     anchor_x_mm: float,
 ) -> tuple[tuple[DXFEntity, ...], DevelopmentMetrics]:
-    source = tuple(entities)
+    source = canonical_boundary_entities(tuple(entities))
     if not source:
         raise PLSplitError("EMPTY_OUTLINE", "主视图外轮廓不能为空。")
     anchor = float(anchor_x_mm)
@@ -503,7 +511,9 @@ def transform_outline(
     )
     source_min_x, source_min_y, _, source_max_y = _outline_bounds(source)
     source_width = source_max_y - source_min_y
-    first, last, upper_left, lower_left, upper_span, lower_span = _proof_contract(longitudinal)
+    first, last, upper_left, lower_left, upper_span, lower_span = _proof_contract(
+        longitudinal
+    )
     upper_scale = (upper_span + target.total_extension_mm) / upper_span
     lower_scale = (lower_span + target.total_extension_mm) / lower_span
     station_values = _source_station_values(longitudinal, len(source))
@@ -524,7 +534,9 @@ def transform_outline(
         downstream_shift=target.total_extension_mm,
     )
     validate_closed_outline(transformed)
-    output_min_x, output_min_y, output_max_x, output_max_y = _outline_bounds(transformed)
+    output_min_x, output_min_y, output_max_x, output_max_y = _outline_bounds(
+        transformed
+    )
     output_length = output_max_x - output_min_x
     output_width = output_max_y - output_min_y
     if abs(output_length - target.target_length_mm) > _DIMENSION_TOLERANCE_MM:
