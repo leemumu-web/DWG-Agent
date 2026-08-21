@@ -1,4 +1,5 @@
 from decimal import Decimal
+from math import pi
 
 import ezdxf
 import pytest
@@ -10,6 +11,7 @@ from steel_dxf_split.pl.contracts import (
     StationBand,
 )
 from steel_dxf_split.pl.development import calculate_target, ceil_tenth_mm
+from steel_dxf_split.pl.geometry import flatten_entity, validate_closed_outline
 from steel_dxf_split.pl.longitudinal import (
     analyze_longitudinal_outline,
     select_carrier_zone,
@@ -58,6 +60,74 @@ def _paired_outline(
     lower: tuple[tuple[float, float], ...],
 ) -> tuple[tuple[DXFEntity, ...], Polygon]:
     return _line_outline((*upper, *reversed(lower)))
+
+
+def _mixed_curve_outline() -> tuple[tuple[DXFEntity, ...], Polygon]:
+    document = ezdxf.new()
+    modelspace = document.modelspace()
+    curve = modelspace.add_ellipse(
+        (400.0, 50.0),
+        (400.0, 0.0),
+        0.125,
+        3.0 * pi / 2.0,
+        2.85 * pi,
+        dxfattribs={"layer": "Part"},
+    )
+    curve_points = flatten_entity(curve, 0.001)
+    lower_left = (curve_points[-1][0], 0.0)
+    entities = (
+        curve,
+        modelspace.add_line(
+            curve_points[-1],
+            lower_left,
+            dxfattribs={"layer": "Part"},
+        ),
+        modelspace.add_line(
+            lower_left,
+            curve_points[0],
+            dxfattribs={"layer": "Part"},
+        ),
+    )
+    return entities, validate_closed_outline(entities, tolerance_mm=0.1)
+
+
+def _split_mixed_curve_outline() -> tuple[tuple[DXFEntity, ...], Polygon]:
+    document = ezdxf.new()
+    modelspace = document.modelspace()
+    lower_curve = modelspace.add_ellipse(
+        (400.0, 50.0),
+        (400.0, 0.0),
+        0.125,
+        3.0 * pi / 2.0,
+        2.0 * pi,
+        dxfattribs={"layer": "Part"},
+    )
+    upper_curve = modelspace.add_ellipse(
+        (400.0, 50.0),
+        (400.0, 0.0),
+        0.125,
+        2.0 * pi,
+        2.85 * pi,
+        dxfattribs={"layer": "Part"},
+    )
+    lower_points = flatten_entity(lower_curve, 0.001)
+    upper_points = flatten_entity(upper_curve, 0.001)
+    lower_left = (upper_points[-1][0], 0.0)
+    entities = (
+        lower_curve,
+        upper_curve,
+        modelspace.add_line(
+            upper_points[-1],
+            lower_left,
+            dxfattribs={"layer": "Part"},
+        ),
+        modelspace.add_line(
+            lower_left,
+            lower_points[0],
+            dxfattribs={"layer": "Part"},
+        ),
+    )
+    return entities, validate_closed_outline(entities, tolerance_mm=0.1)
 
 
 @pytest.mark.parametrize(
@@ -145,21 +215,24 @@ def test_longest_body_tie_within_one_tenth_fails_closed() -> None:
 
 
 @pytest.mark.parametrize(
-    ("upper", "lower", "expected_index"),
+    ("upper", "lower", "expected_index", "expected_count"),
     [
         (
             ((0.0, 100.0), (300.0, 80.0), (600.0, 80.0), (900.0, 80.0)),
             ((0.0, 0.0), (300.0, 20.0), (600.0, 20.0), (900.0, 20.0)),
             0,
+            2,
         ),
         (
             ((0.0, 100.0), (300.0, 100.0), (600.0, 80.0), (900.0, 80.0)),
             ((0.0, 0.0), (300.0, 0.0), (600.0, 20.0), (900.0, 20.0)),
             1,
+            3,
         ),
         (
             ((0.0, 100.0), (300.0, 100.0), (600.0, 100.0), (900.0, 80.0)),
             ((0.0, 0.0), (300.0, 0.0), (600.0, 0.0), (900.0, 20.0)),
+            1,
             2,
         ),
     ],
@@ -169,6 +242,7 @@ def test_longitudinal_visible_turn_selects_its_relative_position(
     upper: tuple[tuple[float, float], ...],
     lower: tuple[tuple[float, float], ...],
     expected_index: int,
+    expected_count: int,
 ) -> None:
     entities, polygon = _paired_outline(upper, lower)
 
@@ -176,7 +250,7 @@ def test_longitudinal_visible_turn_selects_its_relative_position(
 
     assert proof.carrier_interval_indices == (expected_index,)
     assert proof.selection_reason == "paired_visible_turn"
-    assert tuple(interval.index for interval in proof.intervals) == (0, 1, 2)
+    assert tuple(interval.index for interval in proof.intervals) == tuple(range(expected_count))
 
 
 def test_longitudinal_flat_body_excludes_a_short_unmatched_end_tab() -> None:
@@ -207,15 +281,9 @@ def test_longitudinal_proof_is_independent_of_test_layer_part_identity() -> None
 
 
 def test_station_band_wider_than_thickness_plus_one_tenth_is_rejected() -> None:
-    entities, polygon = _line_outline(
-        (
-            (0.0, 100.0),
-            (400.0, 100.0),
-            (800.0, 100.0),
-            (800.0, 0.0),
-            (430.2, 0.0),
-            (0.0, 0.0),
-        )
+    entities, polygon = _paired_outline(
+        ((0.0, 100.0), (400.0, 100.0), (800.0, 80.0)),
+        ((0.0, 0.0), (430.2, 0.0), (800.0, 20.0)),
     )
 
     with pytest.raises(PLSplitError) as error:
@@ -225,18 +293,121 @@ def test_station_band_wider_than_thickness_plus_one_tenth_is_rejected() -> None:
 
 
 def test_station_band_equal_to_thickness_plus_one_tenth_is_allowed() -> None:
-    entities, polygon = _line_outline(
-        (
-            (0.0, 100.0),
-            (400.0, 100.0),
-            (800.0, 100.0),
-            (800.0, 0.0),
-            (430.1, 0.0),
-            (0.0, 0.0),
-        )
+    entities, polygon = _paired_outline(
+        ((0.0, 100.0), (400.0, 100.0), (800.0, 80.0)),
+        ((0.0, 0.0), (430.1, 0.0), (800.0, 20.0)),
     )
 
     proof = analyze_longitudinal_outline(entities, polygon, thickness_mm=30.0)
 
     assert proof.intervals[0].right_station.upper_x_mm == pytest.approx(400.0)
     assert proof.intervals[0].right_station.lower_x_mm == pytest.approx(430.1)
+
+
+def test_longitudinal_asymmetric_collinear_fragmentation_does_not_add_stations() -> None:
+    entities, polygon = _line_outline(
+        (
+            (0.0, 100.0),
+            (400.0, 100.0),
+            (800.0, 100.0),
+            (800.0, 0.0),
+            (0.0, 0.0),
+        )
+    )
+
+    proof = analyze_longitudinal_outline(entities, polygon, thickness_mm=30.0)
+
+    assert proof.carrier_interval_indices == (0,)
+    assert proof.selection_reason == "unique_longest_body"
+    assert tuple(interval.index for interval in proof.intervals) == (0,)
+    assert proof.intervals[0].upper_span_mm == pytest.approx(800.0)
+    assert proof.intervals[0].lower_span_mm == pytest.approx(800.0)
+
+
+@pytest.mark.parametrize(
+    ("order", "reverse_directions"),
+    [
+        ((4, 3, 2, 1, 0), False),
+        ((2, 0, 4, 1, 3), True),
+    ],
+    ids=("reversed-entities", "shuffled-reversed-directions"),
+)
+def test_longitudinal_fragmented_outline_is_entity_order_independent(
+    order: tuple[int, ...],
+    reverse_directions: bool,
+) -> None:
+    entities, polygon = _line_outline(
+        (
+            (0.0, 100.0),
+            (400.0, 100.0),
+            (800.0, 100.0),
+            (800.0, 0.0),
+            (0.0, 0.0),
+        )
+    )
+    if reverse_directions:
+        for entity in entities:
+            start = entity.dxf.start
+            entity.dxf.start = entity.dxf.end
+            entity.dxf.end = start
+    reordered = tuple(entities[index] for index in order)
+
+    proof = analyze_longitudinal_outline(reordered, polygon, thickness_mm=30.0)
+
+    assert proof.carrier_interval_indices == (0,)
+    assert tuple(interval.index for interval in proof.intervals) == (0,)
+    assert proof.intervals[0].upper_span_mm == pytest.approx(800.0)
+    assert proof.intervals[0].lower_span_mm == pytest.approx(800.0)
+
+
+def test_wide_paired_turn_station_cannot_be_recast_as_independent_ledges() -> None:
+    entities, polygon = _paired_outline(
+        ((0.0, 100.0), (400.0, 100.0), (800.0, 80.0)),
+        ((0.0, 0.0), (500.0, 0.0), (800.0, 20.0)),
+    )
+
+    with pytest.raises(PLSplitError) as error:
+        analyze_longitudinal_outline(entities, polygon, thickness_mm=30.0)
+
+    assert error.value.code == "STATION_BAND_TOO_WIDE"
+
+
+def test_mixed_native_curve_is_segmented_into_longitudinal_and_end_chains() -> None:
+    entities, polygon = _mixed_curve_outline()
+
+    proof = analyze_longitudinal_outline(entities, polygon, thickness_mm=50.0)
+
+    assert proof.carrier_interval_indices == (0,)
+    assert proof.selection_reason == "unique_longest_body"
+    assert tuple(interval.index for interval in proof.intervals) == (0, 1)
+    assert not proof.intervals[0].is_end_feature
+    assert proof.intervals[1].is_end_feature
+    assert 0 in proof.intervals[0].upper_entity_indices
+    assert 0 in proof.intervals[1].upper_entity_indices
+    assert 0 in proof.intervals[1].lower_entity_indices
+
+
+def test_mixed_native_curve_topology_is_independent_of_entity_splits() -> None:
+    entities, polygon = _split_mixed_curve_outline()
+
+    proof = analyze_longitudinal_outline(entities, polygon, thickness_mm=50.0)
+
+    assert proof.carrier_interval_indices == (0,)
+    assert proof.selection_reason == "unique_longest_body"
+    assert tuple(interval.index for interval in proof.intervals) == (0, 1)
+    assert not proof.intervals[0].is_end_feature
+    assert proof.intervals[1].is_end_feature
+    assert 0 in proof.intervals[1].lower_entity_indices
+    assert 1 in proof.intervals[1].upper_entity_indices
+
+
+def test_station_band_just_over_strict_limit_is_rejected() -> None:
+    entities, polygon = _paired_outline(
+        ((0.0, 100.0), (400.0, 100.0), (800.0, 80.0)),
+        ((0.0, 0.0), (430.10000001, 0.0), (800.0, 20.0)),
+    )
+
+    with pytest.raises(PLSplitError) as error:
+        analyze_longitudinal_outline(entities, polygon, thickness_mm=30.0)
+
+    assert error.value.code == "STATION_BAND_TOO_WIDE"

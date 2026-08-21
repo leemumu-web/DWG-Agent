@@ -25,6 +25,8 @@ from .geometry import FLATTEN_SAGITTA_MM, TOPOLOGY_TOLERANCE_MM, flatten_entity
 
 _SIDE_TOLERANCE_MM = TOPOLOGY_TOLERANCE_MM + FLATTEN_SAGITTA_MM
 _TURN_TOLERANCE_MM = 0.001
+_FLOAT_EPSILON_MM = 1e-9
+_TANGENT_SINE_TOLERANCE = 1e-4
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,9 +40,11 @@ class _RingEdge:
 
 
 @dataclass(frozen=True, slots=True)
-class _SidePiece:
+class _SideFragment:
     edge: _RingEdge
     points: tuple[tuple[float, float], ...]
+    path_index: int
+    traverses_left_to_right: bool
 
     @property
     def left_x(self) -> float:
@@ -52,9 +56,23 @@ class _SidePiece:
 
 
 @dataclass(frozen=True, slots=True)
+class _SideCourse:
+    fragments: tuple[_SideFragment, ...]
+
+    @property
+    def left_x(self) -> float:
+        return self.fragments[0].left_x
+
+    @property
+    def right_x(self) -> float:
+        return self.fragments[-1].right_x
+
+
+@dataclass(frozen=True, slots=True)
 class _SideEvent:
     x_mm: float
     source_entity_indices: tuple[int, ...]
+    projectable: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,104 +266,231 @@ def _point_side(polygon: Polygon, point: Point) -> str | None:
     return None
 
 
-def _edge_side(edge: _RingEdge, polygon: Polygon) -> str | None:
-    line = LineString(edge.points)
-    if line.bounds[2] - line.bounds[0] <= 1e-9:
-        return None
-    votes = {
-        side
-        for fraction in (0.25, 0.5, 0.75)
-        if (side := _point_side(polygon, line.interpolate(fraction, normalized=True))) is not None
-    }
-    if len(votes) != 1:
-        return None
-    return votes.pop()
-
-
-def _side_pieces(
-    ring: tuple[_RingEdge, ...],
+def _edge_side_fragments(
+    edge: _RingEdge,
     polygon: Polygon,
-) -> tuple[tuple[_SidePiece, ...], tuple[_SidePiece, ...]]:
-    by_side: dict[str, list[_SidePiece]] = {"upper": [], "lower": []}
-    for edge in ring:
-        side = _edge_side(edge, polygon)
-        if side is None:
+    first_path_index: int,
+) -> tuple[tuple[str, _SideFragment], ...]:
+    runs: list[tuple[str, int, list[tuple[float, float]]]] = []
+    for start, end in zip(edge.points, edge.points[1:], strict=False):
+        if dist(start, end) <= 1e-12:
             continue
-        if edge.points[0][0] <= edge.points[-1][0]:
-            points = edge.points
-        else:
-            points = tuple(reversed(edge.points))
-        if points[-1][0] - points[0][0] <= 1e-9:
+        midpoint = Point((start[0] + end[0]) / 2.0, (start[1] + end[1]) / 2.0)
+        side = _point_side(polygon, midpoint)
+        delta_x = end[0] - start[0]
+        direction = 1 if delta_x > _FLOAT_EPSILON_MM else -1 if delta_x < -_FLOAT_EPSILON_MM else 0
+        if side is None or direction == 0:
             continue
-        if any(
-            following[0] < previous[0] - TOPOLOGY_TOLERANCE_MM
-            for previous, following in zip(points, points[1:], strict=False)
-        ):
+        if runs and runs[-1][0] == side and runs[-1][1] == direction:
+            if dist(runs[-1][2][-1], start) <= 1e-12:
+                runs[-1][2].append(end)
+                continue
+        runs.append((side, direction, [start, end]))
+
+    fragments: list[tuple[str, _SideFragment]] = []
+    for offset, (side, _, run) in enumerate(runs):
+        traverses_left_to_right = run[0][0] <= run[-1][0]
+        points = tuple(run if traverses_left_to_right else reversed(run))
+        if points[-1][0] - points[0][0] <= _FLOAT_EPSILON_MM:
             continue
-        by_side[side].append(
-            _SidePiece(
-                edge=edge,
-                points=points,
+        fragments.append(
+            (
+                side,
+                _SideFragment(
+                    edge=edge,
+                    points=points,
+                    path_index=first_path_index + offset,
+                    traverses_left_to_right=traverses_left_to_right,
+                ),
             )
         )
-    for pieces in by_side.values():
-        pieces.sort(key=lambda piece: (piece.left_x, piece.right_x, piece.edge.index))
-    if not by_side["upper"] or not by_side["lower"]:
-        raise _topology_error("主视图没有形成可配对的上下纵向边界。")
-    return tuple(by_side["upper"]), tuple(by_side["lower"])
+    return tuple(fragments)
 
 
-def _side_events(pieces: tuple[_SidePiece, ...]) -> tuple[_SideEvent, ...]:
-    values = sorted(
-        ((x_mm, piece.edge.index) for piece in pieces for x_mm in (piece.left_x, piece.right_x)),
-        key=lambda item: (item[0], item[1]),
+def _ordered_side_fragments(
+    fragments: list[_SideFragment],
+) -> tuple[_SideFragment, ...]:
+    if len(fragments) < 2:
+        return tuple(fragments)
+    centers = tuple((fragment.left_x + fragment.right_x) / 2.0 for fragment in fragments)
+    increasing = all(
+        following >= previous - TOPOLOGY_TOLERANCE_MM
+        for previous, following in zip(centers, centers[1:], strict=False)
     )
-    groups: list[list[tuple[float, int]]] = []
+    decreasing = all(
+        following <= previous + TOPOLOGY_TOLERANCE_MM
+        for previous, following in zip(centers, centers[1:], strict=False)
+    )
+    if not increasing and not decreasing:
+        raise _topology_error("主视图同侧纵向片段没有形成单调连通链。")
+    return tuple(fragments if increasing else reversed(fragments))
+
+
+def _tangentially_continuous(
+    first: _SideFragment,
+    second: _SideFragment,
+) -> bool:
+    if dist(first.points[-1], second.points[0]) > TOPOLOGY_TOLERANCE_MM:
+        return False
+    first_dx = first.points[-1][0] - first.points[-2][0]
+    first_dy = first.points[-1][1] - first.points[-2][1]
+    second_dx = second.points[1][0] - second.points[0][0]
+    second_dy = second.points[1][1] - second.points[0][1]
+    first_length = dist((0.0, 0.0), (first_dx, first_dy))
+    second_length = dist((0.0, 0.0), (second_dx, second_dy))
+    if first_length <= 1e-12 or second_length <= 1e-12:
+        return False
+    cross = abs(first_dx * second_dy - first_dy * second_dx)
+    dot = first_dx * second_dx + first_dy * second_dy
+    return dot > 0.0 and cross <= _TANGENT_SINE_TOLERANCE * first_length * second_length
+
+
+def _coalesce_fragments(
+    fragments: tuple[_SideFragment, ...],
+) -> tuple[_SideCourse, ...]:
+    groups: list[list[_SideFragment]] = []
+    for fragment in fragments:
+        if groups and _tangentially_continuous(groups[-1][-1], fragment):
+            groups[-1].append(fragment)
+        else:
+            groups.append([fragment])
+    return tuple(_SideCourse(tuple(group)) for group in groups)
+
+
+def _side_courses(
+    ring: tuple[_RingEdge, ...],
+    polygon: Polygon,
+) -> tuple[
+    tuple[_SideCourse, ...],
+    tuple[_SideCourse, ...],
+    frozenset[tuple[int, str]],
+]:
+    by_side: dict[str, list[_SideFragment]] = {"upper": [], "lower": []}
+    traversal: list[tuple[str, _SideFragment]] = []
+    for edge in ring:
+        edge_fragments = _edge_side_fragments(edge, polygon, len(traversal))
+        for side, fragment in edge_fragments:
+            by_side[side].append(fragment)
+            traversal.append((side, fragment))
+    ordered = {side: _ordered_side_fragments(fragments) for side, fragments in by_side.items()}
+    if not ordered["upper"] or not ordered["lower"]:
+        raise _topology_error("主视图没有形成可配对的上下纵向边界。")
+    end_linked_boundaries: set[tuple[int, str]] = set()
+    cyclic_traversal = (*traversal, traversal[0])
+    for (first_side, first), (second_side, second) in zip(
+        cyclic_traversal,
+        cyclic_traversal[1:],
+        strict=False,
+    ):
+        if first_side == second_side:
+            continue
+        first_opposite_end = "left" if first.traverses_left_to_right else "right"
+        second_opposite_end = "right" if second.traverses_left_to_right else "left"
+        end_linked_boundaries.add((first.path_index, first_opposite_end))
+        end_linked_boundaries.add((second.path_index, second_opposite_end))
+    return (
+        _coalesce_fragments(ordered["upper"]),
+        _coalesce_fragments(ordered["lower"]),
+        frozenset(end_linked_boundaries),
+    )
+
+
+def _side_events(
+    courses: tuple[_SideCourse, ...],
+    polygon: Polygon,
+    thickness_mm: float,
+    end_linked_boundaries: frozenset[tuple[int, str]],
+) -> tuple[_SideEvent, ...]:
+    values: list[tuple[float, tuple[int, ...], bool]] = []
+    for course in courses:
+        first = course.fragments[0]
+        last = course.fragments[-1]
+        values.append(
+            (
+                course.left_x,
+                (first.edge.index,),
+                (first.path_index, "left") in end_linked_boundaries,
+            )
+        )
+        values.append(
+            (
+                course.right_x,
+                (last.edge.index,),
+                (last.path_index, "right") in end_linked_boundaries,
+            )
+        )
+    values.sort(key=lambda item: (item[0], item[1]))
+    groups: list[list[tuple[float, tuple[int, ...], bool]]] = []
     for value in values:
         if not groups or value[0] - groups[-1][-1][0] > TOPOLOGY_TOLERANCE_MM:
             groups.append([value])
         else:
             groups[-1].append(value)
-    return tuple(
-        _SideEvent(
-            x_mm=sum(value[0] for value in group) / len(group),
-            source_entity_indices=tuple(sorted({value[1] for value in group})),
+    min_x, _, max_x, _ = polygon.bounds
+    events: list[_SideEvent] = []
+    for index, group in enumerate(groups):
+        x_mm = sum(value[0] for value in group) / len(group)
+        sources = tuple(
+            sorted({source for _, source_indices, _ in group for source in source_indices})
         )
-        for group in groups
-    )
+        end_linked = any(value[2] for value in group)
+        near_end = min(x_mm - min_x, max_x - x_mm) <= thickness_mm + 0.1
+        events.append(
+            _SideEvent(
+                x_mm=x_mm,
+                source_entity_indices=sources,
+                projectable=(index not in {0, len(groups) - 1} and (near_end or end_linked)),
+            )
+        )
+    return tuple(events)
 
 
 def _align_events(
     upper: tuple[_SideEvent, ...],
     lower: tuple[_SideEvent, ...],
-    thickness_mm: float,
 ) -> tuple[_RawStationBand, ...]:
-    skip_cost = thickness_mm + 0.1
-
     @cache
-    def solve(first: int, second: int) -> tuple[float, tuple[str, ...]]:
+    def solve(
+        first: int,
+        second: int,
+    ) -> tuple[int, float, tuple[str, ...]] | None:
         if first == len(upper) and second == len(lower):
-            return 0.0, ()
-        candidates: list[tuple[float, int, tuple[str, ...]]] = []
+            return 0, 0.0, ()
+        candidates: list[tuple[int, float, int, tuple[str, ...]]] = []
         if first < len(upper) and second < len(lower):
-            cost, operations = solve(first + 1, second + 1)
-            candidates.append(
-                (
-                    abs(upper[first].x_mm - lower[second].x_mm) + cost,
-                    0,
-                    ("match", *operations),
+            tail = solve(first + 1, second + 1)
+            if tail is not None:
+                skips, distance_sum, operations = tail
+                candidates.append(
+                    (
+                        skips,
+                        abs(upper[first].x_mm - lower[second].x_mm) + distance_sum,
+                        0,
+                        ("match", *operations),
+                    )
                 )
-            )
-        if first < len(upper):
-            cost, operations = solve(first + 1, second)
-            candidates.append((skip_cost + cost, 1, ("upper", *operations)))
-        if second < len(lower):
-            cost, operations = solve(first, second + 1)
-            candidates.append((skip_cost + cost, 2, ("lower", *operations)))
-        cost, _, operations = min(candidates, key=lambda item: (item[0], item[1]))
-        return cost, operations
+        if first < len(upper) and upper[first].projectable:
+            tail = solve(first + 1, second)
+            if tail is not None:
+                skips, distance_sum, operations = tail
+                candidates.append((skips + 1, distance_sum, 1, ("upper", *operations)))
+        if second < len(lower) and lower[second].projectable:
+            tail = solve(first, second + 1)
+            if tail is not None:
+                skips, distance_sum, operations = tail
+                candidates.append((skips + 1, distance_sum, 2, ("lower", *operations)))
+        if not candidates:
+            return None
+        skips, distance_sum, _, operations = min(
+            candidates,
+            key=lambda item: (item[0], item[1], item[2]),
+        )
+        return skips, distance_sum, operations
 
-    _, operations = solve(0, 0)
+    solution = solve(0, 0)
+    if solution is None:
+        raise _topology_error("上下纵向链的内部站位没有唯一拓扑对应。")
+    _, _, operations = solution
     upper_index = 0
     lower_index = 0
     bands: list[_RawStationBand] = []
@@ -444,16 +589,16 @@ def _merge_bands(
 def _station_bands(
     ring: tuple[_RingEdge, ...],
     polygon: Polygon,
-    upper: tuple[_SidePiece, ...],
-    lower: tuple[_SidePiece, ...],
+    upper: tuple[_SideCourse, ...],
+    lower: tuple[_SideCourse, ...],
+    end_linked_boundaries: frozenset[tuple[int, str]],
     thickness_mm: float,
 ) -> tuple[StationBand, ...]:
     raw = list(
         _merge_bands(
             _align_events(
-                _side_events(upper),
-                _side_events(lower),
-                thickness_mm,
+                _side_events(upper, polygon, thickness_mm, end_linked_boundaries),
+                _side_events(lower, polygon, thickness_mm, end_linked_boundaries),
             )
         )
     )
@@ -472,7 +617,12 @@ def _station_bands(
     result: list[StationBand] = []
     for index, band in enumerate(raw):
         width = abs(band.upper_x_mm - band.lower_x_mm)
-        if width > limit and not isclose(width, limit, abs_tol=1e-9):
+        if width > limit and not isclose(
+            width,
+            limit,
+            rel_tol=0.0,
+            abs_tol=_FLOAT_EPSILON_MM,
+        ):
             raise PLSplitError(
                 "STATION_BAND_TOO_WIDE",
                 "纵向站带的上下边界错位超过板厚允许值。",
@@ -504,16 +654,21 @@ def _station_bands(
 
 
 def _piece_indices_between(
-    pieces: tuple[_SidePiece, ...],
+    courses: tuple[_SideCourse, ...],
     first_x: float,
     second_x: float,
 ) -> tuple[int, ...]:
     left = min(first_x, second_x)
     right = max(first_x, second_x)
     return tuple(
-        piece.edge.index
-        for piece in pieces
-        if min(piece.right_x, right) - max(piece.left_x, left) > 1e-9
+        sorted(
+            {
+                fragment.edge.index
+                for course in courses
+                for fragment in course.fragments
+                if min(fragment.right_x, right) - max(fragment.left_x, left) > 1e-9
+            }
+        )
     )
 
 
@@ -532,8 +687,8 @@ def _boundary_sources(
 def _intervals(
     ring: tuple[_RingEdge, ...],
     polygon: Polygon,
-    upper: tuple[_SidePiece, ...],
-    lower: tuple[_SidePiece, ...],
+    upper: tuple[_SideCourse, ...],
+    lower: tuple[_SideCourse, ...],
     stations: tuple[StationBand, ...],
 ) -> tuple[LongitudinalIntervalEvidence, ...]:
     handles = {edge.index: edge.source_handle for edge in ring}
@@ -686,8 +841,15 @@ def analyze_longitudinal_outline(
     )
     if any(not boundary_zone.covers(LineString(edge.points)) for edge in ring):
         raise _topology_error("主视图纵向外边界与材料区域不一致。")
-    upper, lower = _side_pieces(ring, polygon)
-    stations = _station_bands(ring, polygon, upper, lower, thickness_mm)
+    upper, lower, end_linked_boundaries = _side_courses(ring, polygon)
+    stations = _station_bands(
+        ring,
+        polygon,
+        upper,
+        lower,
+        end_linked_boundaries,
+        thickness_mm,
+    )
     intervals = _intervals(ring, polygon, upper, lower, stations)
     carrier, reason = select_carrier_zone(intervals)
     return LongitudinalProof(
