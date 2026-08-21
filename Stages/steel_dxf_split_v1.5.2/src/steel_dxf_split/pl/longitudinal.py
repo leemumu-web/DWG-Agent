@@ -16,7 +16,6 @@ from shapely.geometry import (
     Polygon,
 )
 from shapely.geometry.base import BaseGeometry
-from shapely.ops import unary_union
 
 from .contracts import (
     LongitudinalIntervalEvidence,
@@ -36,6 +35,7 @@ _TURN_TOLERANCE_MM = 0.001
 _FLOAT_EPSILON_MM = 1e-9
 _NATIVE_BOUNDARY_TOLERANCE_MM = 1e-7
 _COURSE_CONTINUITY_EPSILON = 1e-9
+_NODED_COURSE_DIRECTION_TOLERANCE = 0.01
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,6 +94,8 @@ class _SideEvent:
     projection_eligible: bool
     correspondence_ids: frozenset[int]
     direct_correspondence_ids: frozenset[int]
+    has_non_direct_end_chain: bool
+    native_junction_only: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +103,8 @@ class _RawStationBand:
     upper_x_mm: float
     lower_x_mm: float
     source_entity_indices: tuple[int, ...]
+    projected_side: str | None = None
+    direct_only_end_chain: bool = False
 
 
 class _UnionFind:
@@ -126,25 +130,6 @@ def _topology_error(message_zh: str) -> PLSplitError:
 
 def _source_handle(entity: DXFEntity) -> str:
     return str(entity.dxf.get("handle") or "virtual")
-
-
-def canonical_boundary_indices(
-    entities: tuple[DXFEntity, ...],
-    coverage_tolerance_mm: float = _FLOAT_EPSILON_MM,
-) -> tuple[int, ...]:
-    linework = tuple(
-        LineString(flatten_entity(entity, FLATTEN_SAGITTA_MM)) for entity in entities
-    )
-    retained = set(range(len(entities)))
-    for index in sorted(retained, key=lambda item: (linework[item].length, item)):
-        others = tuple(linework[item] for item in retained if item != index)
-        if others and unary_union(others).buffer(
-            coverage_tolerance_mm,
-            cap_style="square",
-            join_style="mitre",
-        ).covers(linework[index]):
-            retained.remove(index)
-    return tuple(sorted(retained))
 
 
 def _has_degree_two_endpoints(
@@ -189,7 +174,7 @@ def _line_parameter(line: Line, point: tuple[float, float]) -> float | None:
     if (
         parameter < -_FLOAT_EPSILON_MM
         or parameter > 1.0 + _FLOAT_EPSILON_MM
-        or dist(projected, point) > TOPOLOGY_TOLERANCE_MM
+        or dist(projected, point) > _NATIVE_BOUNDARY_TOLERANCE_MM
     ):
         return None
     return min(1.0, max(0.0, parameter))
@@ -228,46 +213,88 @@ def _same_piece(
     )
 
 
+def _validate_boundary_piece_cycle(
+    pieces: tuple[BoundaryPiece, ...],
+    material: Polygon,
+    *,
+    endpoint_tolerance_mm: float,
+) -> None:
+    piece_entities = tuple(piece.entity for piece in pieces)
+    if not _has_degree_two_endpoints(piece_entities, endpoint_tolerance_mm):
+        raise _topology_error("主视图原生边界片段没有形成唯一二度闭合环。")
+    proved = validate_closed_outline(
+        piece_entities,
+        tolerance_mm=endpoint_tolerance_mm,
+    )
+    if (
+        not proved.is_valid
+        or len(proved.interiors)
+        or proved.symmetric_difference(material).area
+        > _NATIVE_BOUNDARY_TOLERANCE_MM * max(material.length, 1.0)
+    ):
+        raise _topology_error("原生边界片段与主视图材料区域不一致。")
+
+
 def canonical_boundary_pieces(
     entities: tuple[DXFEntity, ...],
 ) -> tuple[BoundaryPiece, ...]:
-    selected_indices = canonical_boundary_indices(
-        entities,
-        FLATTEN_SAGITTA_MM
-        if any(entity.dxftype() != "LINE" for entity in entities)
-        else _FLOAT_EPSILON_MM,
+    if not entities:
+        raise _topology_error("主视图没有可分析的原生边界实体。")
+    unsupported = tuple(
+        sorted({entity.dxftype() for entity in entities} - {"LINE", "ARC", "ELLIPSE"})
     )
-    selected = tuple(entities[index] for index in selected_indices)
-    if _has_degree_two_endpoints(selected):
-        return tuple(
-            BoundaryPiece(
-                index, _source_handle(entities[index]), entities[index], False
-            )
-            for index in selected_indices
-        )
-    if any(entity.dxftype() != "LINE" for entity in selected):
-        raise _topology_error("含原生曲线的主视图外边界不是二度闭合环。")
+    if unsupported:
+        raise _topology_error(f"主视图含不支持的原生边界实体：{unsupported}")
     polygon = validate_closed_outline(
         entities,
         tolerance_mm=TOPOLOGY_TOLERANCE_MM,
     )
+    originals = tuple(
+        BoundaryPiece(
+            source_index=index,
+            source_handle=_source_handle(entity),
+            entity=entity,
+            is_noded_piece=False,
+        )
+        for index, entity in enumerate(entities)
+    )
+    if _has_degree_two_endpoints(entities):
+        _validate_boundary_piece_cycle(
+            originals,
+            polygon,
+            endpoint_tolerance_mm=TOPOLOGY_TOLERANCE_MM,
+        )
+        return originals
+
+    curves = tuple(piece for piece in originals if piece.entity.dxftype() != "LINE")
+    indexed_lines = tuple(
+        (index, cast(Line, entity))
+        for index, entity in enumerate(entities)
+        if entity.dxftype() == "LINE"
+    )
+    if not indexed_lines:
+        raise _topology_error("原生曲线候选没有形成唯一二度闭合环。")
     linework = tuple(
-        LineString(flatten_entity(entity, FLATTEN_SAGITTA_MM)) for entity in selected
+        LineString(flatten_entity(line, FLATTEN_SAGITTA_MM))
+        for _, line in indexed_lines
     )
     boundary_zone = polygon.boundary.buffer(
         _SIDE_TOLERANCE_MM,
         cap_style="square",
         join_style="mitre",
     )
-    if any(not boundary_zone.covers(line) for line in linework):
-        raise _topology_error("主视图重叠线段没有全部落在材料外边界。")
+    all_linework = tuple(
+        LineString(flatten_entity(entity, FLATTEN_SAGITTA_MM)) for entity in entities
+    )
+    if any(not boundary_zone.covers(line) for line in all_linework):
+        raise _topology_error("主视图原生边界候选没有全部落在材料外边界。")
     native_boundary_zone = polygon.boundary.buffer(
         _NATIVE_BOUNDARY_TOLERANCE_MM,
         cap_style="square",
         join_style="mitre",
     )
 
-    split_points: list[set[tuple[float, float]]] = [set() for _ in selected]
+    split_points: list[set[tuple[float, float]]] = [set() for _ in indexed_lines]
     for first_index, first in enumerate(linework):
         split_points[first_index].update(
             (tuple(first.coords[0]), tuple(first.coords[-1]))
@@ -285,14 +312,12 @@ def canonical_boundary_pieces(
     candidates: list[
         tuple[
             int,
+            str,
             DXFEntity,
             tuple[tuple[float, float], tuple[float, float]],
         ]
     ] = []
-    for selected_index, (source_index, entity) in enumerate(
-        zip(selected_indices, selected, strict=True)
-    ):
-        line = cast(Line, entity)
+    for selected_index, (source_index, line) in enumerate(indexed_lines):
         start = line.dxf.start
         end = line.dxf.end
         delta = end - start
@@ -317,42 +342,133 @@ def canonical_boundary_pieces(
             clone = cast(Line, line.copy())
             clone.dxf.start = first_point
             clone.dxf.end = second_point
-            candidates.append((source_index, clone, endpoints))
+            candidates.append(
+                (
+                    source_index,
+                    _source_handle(entities[source_index]),
+                    clone,
+                    endpoints,
+                )
+            )
 
-    result: list[BoundaryPiece] = []
-    endpoints_by_piece: list[tuple[tuple[float, float], tuple[float, float]]] = []
-    for source_index, entity, endpoints in candidates:
-        if not native_boundary_zone.covers(LineString(endpoints)):
+    boundary_candidates = tuple(
+        candidate
+        for candidate in candidates
+        if native_boundary_zone.covers(LineString(candidate[3]))
+    )
+    groups: list[
+        list[
+            tuple[
+                int,
+                str,
+                DXFEntity,
+                tuple[tuple[float, float], tuple[float, float]],
+            ]
+        ]
+    ] = []
+    for candidate in boundary_candidates:
+        group = next(
+            (
+                existing
+                for existing in groups
+                if _same_piece(candidate[3], existing[0][3])
+            ),
+            None,
+        )
+        if group is None:
+            groups.append([candidate])
+        else:
+            group.append(candidate)
+
+    def source_line_length(candidate: tuple[int, str, DXFEntity, object]) -> float:
+        source = cast(Line, entities[candidate[0]])
+        return dist(
+            (float(source.dxf.start.x), float(source.dxf.start.y)),
+            (float(source.dxf.end.x), float(source.dxf.end.y)),
+        )
+
+    selected = tuple(
+        min(
+            group,
+            key=lambda candidate: (
+                -source_line_length(candidate),
+                candidate[1],
+                candidate[0],
+            ),
+        )
+        for group in groups
+    )
+    selected_by_source: dict[
+        int,
+        list[
+            tuple[
+                int,
+                str,
+                DXFEntity,
+                tuple[tuple[float, float], tuple[float, float]],
+            ]
+        ],
+    ] = {}
+    for candidate in selected:
+        selected_by_source.setdefault(candidate[0], []).append(candidate)
+
+    complete_sources: set[int] = set()
+    for source_index, source_candidates in selected_by_source.items():
+        source = cast(Line, entities[source_index])
+        source_length = source_line_length(source_candidates[0])
+        parameter_tolerance = _NATIVE_BOUNDARY_TOLERANCE_MM / max(
+            source_length,
+            1.0,
+        )
+        intervals = sorted(
+            (
+                min(first, second),
+                max(first, second),
+            )
+            for _, _, _, endpoints in source_candidates
+            if (first := _line_parameter(source, endpoints[0])) is not None
+            and (second := _line_parameter(source, endpoints[1])) is not None
+        )
+        covered_until = 0.0
+        for first, second in intervals:
+            if first > covered_until + parameter_tolerance:
+                break
+            covered_until = max(covered_until, second)
+        else:
+            if covered_until >= 1.0 - parameter_tolerance:
+                complete_sources.add(source_index)
+
+    line_pieces: list[BoundaryPiece] = []
+    emitted_complete_sources: set[int] = set()
+    for source_index, source_handle, entity, _ in selected:
+        if source_index in complete_sources:
+            if source_index in emitted_complete_sources:
+                continue
+            emitted_complete_sources.add(source_index)
+            line_pieces.append(
+                BoundaryPiece(
+                    source_index=source_index,
+                    source_handle=source_handle,
+                    entity=entities[source_index],
+                    is_noded_piece=True,
+                )
+            )
             continue
-        if any(_same_piece(endpoints, retained) for retained in endpoints_by_piece):
-            continue
-        result.append(
+        line_pieces.append(
             BoundaryPiece(
                 source_index=source_index,
-                source_handle=_source_handle(entities[source_index]),
+                source_handle=source_handle,
                 entity=entity,
                 is_noded_piece=True,
             )
         )
-        endpoints_by_piece.append(endpoints)
-    result_entities = tuple(piece.entity for piece in result)
-    if not _has_degree_two_endpoints(
-        result_entities,
-        _NATIVE_BOUNDARY_TOLERANCE_MM,
-    ):
-        raise _topology_error("主视图重叠线段不能精确节点化为二度闭合环。")
-    proved = validate_closed_outline(
-        result_entities,
-        tolerance_mm=_NATIVE_BOUNDARY_TOLERANCE_MM,
+    result = (*curves, *line_pieces)
+    _validate_boundary_piece_cycle(
+        result,
+        polygon,
+        endpoint_tolerance_mm=_NATIVE_BOUNDARY_TOLERANCE_MM,
     )
-    if (
-        not proved.is_valid
-        or len(proved.interiors)
-        or proved.symmetric_difference(polygon).area
-        > _NATIVE_BOUNDARY_TOLERANCE_MM * max(polygon.length, 1.0)
-    ):
-        raise _topology_error("精确节点化边界与主视图材料区域不一致。")
-    return tuple(result)
+    return result
 
 
 def _ring_edges(
@@ -699,7 +815,15 @@ def _same_geometric_course(
             second.points[-1][0] - second.points[0][0],
             second.points[-1][1] - second.points[0][1],
         )
-        if first_chord[0] * second_chord[0] + first_chord[1] * second_chord[1] > 0.0:
+        first_length = dist((0.0, 0.0), first_chord)
+        second_length = dist((0.0, 0.0), second_chord)
+        direction_cross = abs(
+            first_chord[0] * second_chord[1] - first_chord[1] * second_chord[0]
+        ) / (first_length * second_length)
+        if (
+            first_chord[0] * second_chord[0] + first_chord[1] * second_chord[1] > 0.0
+            and direction_cross <= _NODED_COURSE_DIRECTION_TOLERANCE
+        ):
             combined = LineString((first.points[0], second.points[-1]))
             if combined.distance(Point(first.points[-1])) <= TOPOLOGY_TOLERANCE_MM:
                 return True
@@ -782,7 +906,6 @@ def _side_courses(
 def _side_events(
     courses: tuple[_SideCourse, ...],
     polygon: Polygon,
-    thickness_mm: float,
     end_transition_links: frozenset[tuple[int, str, int, bool]],
 ) -> tuple[_SideEvent, ...]:
     links_by_boundary: dict[tuple[int, str], set[int]] = {}
@@ -792,7 +915,9 @@ def _side_events(
         links_by_boundary.setdefault(key, set()).add(transition_id)
         if direct_junction:
             direct_links_by_boundary.setdefault(key, set()).add(transition_id)
-    values: list[tuple[float, tuple[int, ...], frozenset[int], frozenset[int]]] = []
+    values: list[
+        tuple[float, tuple[int, ...], frozenset[int], frozenset[int], bool]
+    ] = []
     for course in courses:
         first = course.fragments[0]
         last = course.fragments[-1]
@@ -830,6 +955,7 @@ def _side_events(
                 (first.edge.source_index,),
                 left_links,
                 left_direct_links,
+                False,
             )
         )
         values.append(
@@ -838,37 +964,49 @@ def _side_events(
                 (last.edge.source_index,),
                 right_links,
                 right_direct_links,
+                False,
             )
         )
         for previous, following in pairwise(course.fragments):
-            x_mm = (previous.right_x + following.left_x) / 2.0
-            near_end = min(x_mm - polygon.bounds[0], polygon.bounds[2] - x_mm)
+            junction_links = frozenset(
+                {
+                    *links_by_boundary.get((previous.path_index, "right"), ()),
+                    *links_by_boundary.get((following.path_index, "left"), ()),
+                }
+            )
+            junction_direct_links = frozenset(
+                {
+                    *direct_links_by_boundary.get((previous.path_index, "right"), ()),
+                    *direct_links_by_boundary.get((following.path_index, "left"), ()),
+                }
+            )
             if (
-                not previous.edge.is_noded_piece
-                and not following.edge.is_noded_piece
-                and near_end <= thickness_mm + 0.1
+                previous.edge.is_noded_piece
+                or following.edge.is_noded_piece
+                or not junction_links
             ):
-                values.append(
+                continue
+            values.append(
+                (
+                    (previous.right_x + following.left_x) / 2.0,
                     (
-                        x_mm,
-                        (
-                            previous.edge.source_index,
-                            following.edge.source_index,
-                        ),
-                        frozenset(),
-                        frozenset(),
-                    )
+                        previous.edge.source_index,
+                        following.edge.source_index,
+                    ),
+                    junction_links,
+                    junction_direct_links,
+                    True,
                 )
+            )
     values.sort(key=lambda item: (item[0], item[1]))
     groups: list[
-        list[tuple[float, tuple[int, ...], frozenset[int], frozenset[int]]]
+        list[tuple[float, tuple[int, ...], frozenset[int], frozenset[int], bool]]
     ] = []
     for value in values:
         if not groups or value[0] - groups[-1][-1][0] > TOPOLOGY_TOLERANCE_MM:
             groups.append([value])
         else:
             groups[-1].append(value)
-    min_x, _, max_x, _ = polygon.bounds
     events: list[_SideEvent] = []
     for index, group in enumerate(groups):
         x_mm = sum(value[0] for value in group) / len(group)
@@ -876,7 +1014,7 @@ def _side_events(
             sorted(
                 {
                     source
-                    for _, source_indices, _, _ in group
+                    for _, source_indices, _, _, _ in group
                     for source in source_indices
                 }
             )
@@ -893,51 +1031,91 @@ def _side_events(
         )
         if crosses_reentrant_end:
             correspondence_ids = frozenset()
-        near_end = min(x_mm - min_x, max_x - x_mm) <= thickness_mm + 0.1
+        else:
+            correspondence_ids -= direct_correspondence_ids
         events.append(
             _SideEvent(
                 x_mm=x_mm,
                 source_entity_indices=sources,
                 projection_eligible=(
                     index not in {0, len(groups) - 1}
-                    and (near_end or crosses_reentrant_end or bool(correspondence_ids))
+                    and (bool(direct_correspondence_ids) or crosses_reentrant_end)
                 ),
                 correspondence_ids=correspondence_ids,
                 direct_correspondence_ids=direct_correspondence_ids,
+                has_non_direct_end_chain=bool(correspondence_ids),
+                native_junction_only=all(value[4] for value in group),
             )
         )
     return tuple(events)
 
 
-def _prove_independent_direct_end_events(
+def _filter_native_junction_events(
     upper: tuple[_SideEvent, ...],
     lower: tuple[_SideEvent, ...],
-    min_x: float,
-    max_x: float,
-    station_limit_mm: float,
 ) -> tuple[tuple[_SideEvent, ...], tuple[_SideEvent, ...]]:
-    midpoint = (min_x + max_x) / 2.0
+    upper_direct_links = frozenset(
+        transition_id
+        for event in upper
+        if event.native_junction_only and event.direct_correspondence_ids
+        for transition_id in event.correspondence_ids
+    )
+    lower_direct_links = frozenset(
+        transition_id
+        for event in lower
+        if event.native_junction_only and event.direct_correspondence_ids
+        for transition_id in event.correspondence_ids
+    )
+
+    def filtered(
+        events: tuple[_SideEvent, ...],
+        opposite_direct_links: frozenset[int],
+    ) -> tuple[_SideEvent, ...]:
+        kept = tuple(
+            event
+            for event in events
+            if not event.native_junction_only
+            or bool(event.direct_correspondence_ids)
+            or bool(event.correspondence_ids & opposite_direct_links)
+        )
+        relocated_links = frozenset(
+            transition_id
+            for event in kept
+            if event.native_junction_only
+            for transition_id in event.correspondence_ids
+        )
+        return tuple(
+            replace(
+                event,
+                correspondence_ids=event.correspondence_ids - relocated_links,
+                has_non_direct_end_chain=bool(
+                    event.correspondence_ids - relocated_links
+                ),
+            )
+            if not event.native_junction_only
+            else event
+            for event in kept
+        )
+
+    return filtered(upper, lower_direct_links), filtered(lower, upper_direct_links)
+
+
+def _classify_direct_end_events(
+    upper: tuple[_SideEvent, ...],
+    lower: tuple[_SideEvent, ...],
+) -> tuple[tuple[_SideEvent, ...], tuple[_SideEvent, ...]]:
     independent_upper: set[int] = set()
     independent_lower: set[int] = set()
     for upper_index, upper_event in enumerate(upper[1:-1], start=1):
         for lower_index, lower_event in enumerate(lower[1:-1], start=1):
-            shared_direct = (
+            if (
                 upper_event.direct_correspondence_ids
                 & lower_event.direct_correspondence_ids
-            )
-            if not shared_direct:
-                continue
-            same_end = (upper_event.x_mm <= midpoint) == (lower_event.x_mm <= midpoint)
-            if same_end and not _station_width_within_limit(
-                abs(upper_event.x_mm - lower_event.x_mm),
-                station_limit_mm,
             ):
                 independent_upper.add(upper_index)
                 independent_lower.add(lower_index)
-    if not independent_upper:
-        return upper, lower
 
-    def independent(event: _SideEvent) -> _SideEvent:
+    def classified(event: _SideEvent) -> _SideEvent:
         return replace(
             event,
             projection_eligible=True,
@@ -946,11 +1124,11 @@ def _prove_independent_direct_end_events(
 
     return (
         tuple(
-            independent(event) if index in independent_upper else event
+            classified(event) if index in independent_upper else event
             for index, event in enumerate(upper)
         ),
         tuple(
-            independent(event) if index in independent_lower else event
+            classified(event) if index in independent_lower else event
             for index, event in enumerate(lower)
         ),
     )
@@ -991,89 +1169,6 @@ def _station_width_within_limit(width_mm: float, limit_mm: float) -> bool:
         limit_mm,
         rel_tol=0.0,
         abs_tol=_FLOAT_EPSILON_MM,
-    )
-
-
-def _opposite_short_end_bands(
-    upper: tuple[_SideEvent, ...],
-    lower: tuple[_SideEvent, ...],
-    min_x: float,
-    max_x: float,
-    station_limit_mm: float,
-) -> tuple[_RawStationBand, ...] | None:
-    if len(upper) != 3 or len(lower) != 3:
-        return None
-    upper_event = upper[1]
-    lower_event = lower[1]
-    if not upper_event.correspondence_ids & lower_event.correspondence_ids:
-        return None
-    midpoint = (min_x + max_x) / 2.0
-    upper_at_left = upper_event.x_mm <= midpoint
-    lower_at_left = lower_event.x_mm <= midpoint
-    if upper_at_left == lower_at_left:
-        return None
-    if upper_at_left:
-        leading = upper_event
-        upper_body_span = upper[-1].x_mm - upper_event.x_mm
-        lower_body_span = lower_event.x_mm - lower[0].x_mm
-        trailing = _RawStationBand(
-            upper_x_mm=upper[-1].x_mm,
-            lower_x_mm=lower_event.x_mm,
-            source_entity_indices=tuple(
-                sorted(
-                    {
-                        *upper[-1].source_entity_indices,
-                        *lower_event.source_entity_indices,
-                    }
-                )
-            ),
-        )
-        leading_distance = upper_event.x_mm - min_x
-        trailing_distance = max_x - lower_event.x_mm
-    else:
-        leading = lower_event
-        upper_body_span = upper_event.x_mm - upper[0].x_mm
-        lower_body_span = lower[-1].x_mm - lower_event.x_mm
-        trailing = _RawStationBand(
-            upper_x_mm=upper_event.x_mm,
-            lower_x_mm=lower[-1].x_mm,
-            source_entity_indices=tuple(
-                sorted(
-                    {
-                        *upper_event.source_entity_indices,
-                        *lower[-1].source_entity_indices,
-                    }
-                )
-            ),
-        )
-        leading_distance = lower_event.x_mm - min_x
-        trailing_distance = max_x - upper_event.x_mm
-    if not all(
-        _station_width_within_limit(distance_mm, station_limit_mm)
-        for distance_mm in (leading_distance, trailing_distance)
-    ):
-        return None
-    if abs(upper_body_span - lower_body_span) > TOPOLOGY_TOLERANCE_MM:
-        return None
-    return (
-        _RawStationBand(
-            upper_x_mm=upper[0].x_mm,
-            lower_x_mm=lower[0].x_mm,
-            source_entity_indices=tuple(
-                sorted(
-                    {
-                        *upper[0].source_entity_indices,
-                        *lower[0].source_entity_indices,
-                    }
-                )
-            ),
-        ),
-        _RawStationBand(
-            upper_x_mm=leading.x_mm,
-            lower_x_mm=leading.x_mm,
-            source_entity_indices=leading.source_entity_indices,
-        ),
-        trailing,
     )
 
 
@@ -1179,6 +1274,11 @@ def _align_events(
                     upper_x_mm=event.x_mm,
                     lower_x_mm=event.x_mm,
                     source_entity_indices=event.source_entity_indices,
+                    projected_side="upper",
+                    direct_only_end_chain=(
+                        bool(event.direct_correspondence_ids)
+                        and not event.has_non_direct_end_chain
+                    ),
                 )
             )
             upper_index += 1
@@ -1189,10 +1289,55 @@ def _align_events(
                     upper_x_mm=event.x_mm,
                     lower_x_mm=event.x_mm,
                     source_entity_indices=event.source_entity_indices,
+                    projected_side="lower",
+                    direct_only_end_chain=(
+                        bool(event.direct_correspondence_ids)
+                        and not event.has_non_direct_end_chain
+                    ),
                 )
             )
             lower_index += 1
     return tuple(bands)
+
+
+def _close_terminal_direct_end_band(
+    bands: tuple[_RawStationBand, ...],
+) -> tuple[_RawStationBand, ...]:
+    ordered = tuple(
+        sorted(
+            bands,
+            key=lambda band: (
+                (band.upper_x_mm + band.lower_x_mm) / 2.0,
+                band.upper_x_mm,
+                band.lower_x_mm,
+            ),
+        )
+    )
+    if len(ordered) < 2:
+        return ordered
+    projected = ordered[-2]
+    endpoint = ordered[-1]
+    if (
+        projected.projected_side != "upper"
+        or not projected.direct_only_end_chain
+        or endpoint.projected_side is not None
+    ):
+        return ordered
+    return (
+        *ordered[:-2],
+        _RawStationBand(
+            upper_x_mm=projected.upper_x_mm,
+            lower_x_mm=endpoint.lower_x_mm,
+            source_entity_indices=tuple(
+                sorted(
+                    {
+                        *projected.source_entity_indices,
+                        *endpoint.source_entity_indices,
+                    }
+                )
+            ),
+        ),
+    )
 
 
 def _edge_indices_at_x(
@@ -1253,26 +1398,19 @@ def _station_bands(
     thickness_mm: float,
 ) -> tuple[StationBand, ...]:
     limit = thickness_mm + 0.1
-    upper_events = _side_events(upper, polygon, thickness_mm, end_transition_links)
-    lower_events = _side_events(lower, polygon, thickness_mm, end_transition_links)
-    min_x, _, max_x, _ = polygon.bounds
-    opposite_end_bands = _opposite_short_end_bands(
+    upper_events = _side_events(upper, polygon, end_transition_links)
+    lower_events = _side_events(lower, polygon, end_transition_links)
+    upper_events, lower_events = _filter_native_junction_events(
         upper_events,
         lower_events,
-        min_x,
-        max_x,
-        limit,
     )
-    if opposite_end_bands is None:
-        upper_events, lower_events = _prove_independent_direct_end_events(
-            upper_events,
-            lower_events,
-            min_x,
-            max_x,
-            limit,
-        )
-        opposite_end_bands = _align_events(upper_events, lower_events, limit)
-    raw = list(_merge_bands(opposite_end_bands))
+    upper_events, lower_events = _classify_direct_end_events(
+        upper_events,
+        lower_events,
+    )
+    min_x, _, max_x, _ = polygon.bounds
+    aligned = _align_events(upper_events, lower_events, limit)
+    raw = list(_merge_bands(_close_terminal_direct_end_band(aligned)))
     if (
         raw
         and min_x < min(raw[0].upper_x_mm, raw[0].lower_x_mm) - TOPOLOGY_TOLERANCE_MM

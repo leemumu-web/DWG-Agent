@@ -138,6 +138,41 @@ def _split_mixed_curve_outline() -> tuple[tuple[DXFEntity, ...], Polygon]:
     return entities, validate_closed_outline(entities, tolerance_mm=0.1)
 
 
+def _mixed_arc_overlapping_line_outline() -> tuple[tuple[DXFEntity, ...], Polygon]:
+    document = ezdxf.new()
+    modelspace = document.modelspace()
+    curve = modelspace.add_ellipse(
+        (400.0, 50.0),
+        (400.0, 0.0),
+        0.125,
+        3.0 * pi / 2.0,
+        3.0 * pi,
+        dxfattribs={"layer": "Part"},
+    )
+    curve_points = flatten_entity(curve, 0.001)
+    lower_left = (curve_points[-1][0], 0.0)
+    bottom_span = curve_points[0][0] - lower_left[0]
+    entities = (
+        curve,
+        modelspace.add_line(
+            curve_points[-1],
+            lower_left,
+            dxfattribs={"layer": "Part"},
+        ),
+        modelspace.add_line(
+            lower_left,
+            (lower_left[0] + bottom_span * 0.75, 0.0),
+            dxfattribs={"layer": "Part"},
+        ),
+        modelspace.add_line(
+            (lower_left[0] + bottom_span * 0.5, 0.0),
+            curve_points[0],
+            dxfattribs={"layer": "Part"},
+        ),
+    )
+    return entities, validate_closed_outline(entities, tolerance_mm=0.1)
+
+
 def _smooth_curve_course_outline(
     curve_kind: str,
     *,
@@ -878,7 +913,7 @@ def test_longitudinal_asymmetric_collinear_fragmentation_does_not_add_stations()
     assert set(proof.intervals[0].upper_entity_indices) >= {0, 1}
 
 
-def test_short_terminal_collinear_fragment_creates_an_end_interval() -> None:
+def test_nondirect_terminal_fragment_does_not_create_a_station() -> None:
     entities, polygon = _line_outline(
         (
             (0.0, 100.0),
@@ -893,8 +928,7 @@ def test_short_terminal_collinear_fragment_creates_an_end_interval() -> None:
 
     assert proof.carrier_interval_indices == (0,)
     assert proof.selection_reason == "unique_longest_body"
-    assert tuple(interval.index for interval in proof.intervals) == (0, 1)
-    assert proof.intervals[1].is_end_feature
+    assert tuple(interval.index for interval in proof.intervals) == (0,)
 
 
 @pytest.mark.parametrize(
@@ -945,7 +979,7 @@ def test_wide_paired_turn_station_cannot_be_recast_as_independent_ledges() -> No
     assert error.value.code == "STATION_BAND_TOO_WIDE"
 
 
-def test_true_wide_pair_stays_paired_beside_one_independent_ledge() -> None:
+def test_end_near_layout_without_a_direct_chain_fails_closed() -> None:
     entities, polygon = _paired_outline(
         (
             (0.0, 100.0),
@@ -960,24 +994,18 @@ def test_true_wide_pair_stays_paired_beside_one_independent_ledge() -> None:
     with pytest.raises(PLSplitError) as error:
         analyze_longitudinal_outline(entities, polygon, thickness_mm=30.0)
 
-    assert error.value.code == "STATION_BAND_TOO_WIDE"
+    assert error.value.code == "LONGITUDINAL_TOPOLOGY"
 
 
-def test_opposite_independent_ledges_project_instead_of_forming_a_false_pair() -> None:
-    entities, polygon = _paired_outline(
+def test_direct_end_chain_topology_projects_opposite_independent_features() -> None:
+    entities, polygon = _line_outline(
         (
             (0.0, 100.0),
-            (10.0, 100.0),
-            (20.0, 105.0),
-            (780.0, 105.0),
-            (800.0, 95.0),
-        ),
-        (
-            (0.0, 0.0),
-            (10.0, 5.0),
-            (770.0, 5.0),
-            (780.0, 0.0),
+            (400.0, 110.0),
+            (790.0, 100.0),
             (800.0, 0.0),
+            (400.0, 10.0),
+            (10.0, 0.0),
         ),
     )
 
@@ -990,16 +1018,14 @@ def test_opposite_independent_ledges_project_instead_of_forming_a_false_pair() -
     assert tuple((station.upper_x_mm, station.lower_x_mm) for station in stations) == (
         (0.0, 0.0),
         (10.0, 10.0),
-        (20.0, 20.0),
-        (770.0, 770.0),
-        (780.0, 780.0),
-        (800.0, 800.0),
+        (400.0, 400.0),
+        (790.0, 800.0),
     )
     assert proof.carrier_interval_indices == (2,)
-    assert proof.selection_reason == "unique_longest_body"
+    assert proof.selection_reason == "paired_visible_turn"
 
 
-def test_near_opposite_independent_ledges_project_above_station_limit() -> None:
+def test_end_proximity_cannot_prove_opposite_ledges_are_independent() -> None:
     entities, polygon = _paired_outline(
         (
             (0.0, 100.0),
@@ -1017,22 +1043,10 @@ def test_near_opposite_independent_ledges_project_above_station_limit() -> None:
         ),
     )
 
-    proof = analyze_longitudinal_outline(entities, polygon, thickness_mm=30.0)
+    with pytest.raises(PLSplitError) as error:
+        analyze_longitudinal_outline(entities, polygon, thickness_mm=30.0)
 
-    stations = (
-        *(interval.left_station for interval in proof.intervals),
-        proof.intervals[-1].right_station,
-    )
-    assert tuple((station.upper_x_mm, station.lower_x_mm) for station in stations) == (
-        (0.0, 0.0),
-        (10.0, 10.0),
-        (20.0, 20.0),
-        (60.0, 60.0),
-        (70.0, 70.0),
-        (80.0, 80.0),
-    )
-    assert proof.carrier_interval_indices == (2,)
-    assert proof.selection_reason == "unique_longest_body"
+    assert error.value.code == "STATION_BAND_TOO_WIDE"
 
 
 def test_terminal_opposite_chain_wobble_is_a_strict_turn_but_not_body() -> None:
@@ -1248,6 +1262,113 @@ def test_shared_tip_topology_proves_pointed_end_stations_are_independent() -> No
     assert proof.selection_reason == "paired_visible_turn"
 
 
+def test_near_coincident_curves_are_not_approximately_deduplicated() -> None:
+    entities, _ = _mixed_curve_outline()
+    duplicate = entities[0].copy()
+    duplicate.dxf.center = entities[0].dxf.center + (0.0, 0.0005, 0.0)
+
+    with pytest.raises(PLSplitError) as error:
+        canonical_boundary_pieces((*entities, duplicate))
+
+    assert error.value.code == "LONGITUDINAL_TOPOLOGY"
+
+
+def test_mixed_curve_and_overlapping_lines_preserve_native_provenance(
+    tmp_path: Path,
+) -> None:
+    entities, polygon = _mixed_arc_overlapping_line_outline()
+
+    pieces = canonical_boundary_pieces(entities)
+    curve_piece = next(piece for piece in pieces if piece.entity.dxftype() == "ELLIPSE")
+    assert curve_piece.source_index == 0
+    assert curve_piece.source_handle == str(entities[0].dxf.handle)
+    assert curve_piece.is_noded_piece is False
+    assert {piece.source_index for piece in pieces if piece.entity.dxftype() == "LINE"} == {
+        1,
+        2,
+        3,
+    }
+    assert all(piece.is_noded_piece for piece in pieces if piece.entity.dxftype() == "LINE")
+    proved = validate_closed_outline(
+        tuple(piece.entity for piece in pieces),
+        tolerance_mm=1e-7,
+    )
+    assert proved.symmetric_difference(polygon).area <= 0.000001
+
+    proof = analyze_longitudinal_outline(entities, polygon, thickness_mm=50.0)
+    assert proof.carrier_interval_indices == (0,)
+    assert str(entities[0].dxf.handle) in proof.intervals[0].source_handles
+    min_x, min_y, max_x, max_y = polygon.bounds
+    projection = max_x - min_x
+    transformed, metrics = transform_outline(
+        entities,
+        longitudinal=proof,
+        projection_length_mm=projection,
+        k_length_mm=projection,
+        bom_length_mm=projection,
+        anchor_x_mm=min_x,
+    )
+    assert {entity.dxftype() for entity in transformed} == {"ELLIPSE", "LINE"}
+
+    from steel_dxf_split.pl.writer import write_pl_dxf
+
+    developed = DevelopedPlate(
+        metadata=PLMetadata(
+            "anonymous-mixed-native",
+            50.0,
+            max_y - min_y,
+            projection,
+        ),
+        outline=PlateOutline(
+            outer_entities=entities,
+            polygon=polygon,
+            projection_length_mm=projection,
+            width_mm=max_y - min_y,
+            anchor_x_mm=min_x,
+            source_handles=tuple(str(entity.dxf.handle) for entity in entities),
+            candidate_count=1,
+        ),
+        section=SectionProof(
+            polygon=Polygon(
+                (
+                    (0.0, -50.0),
+                    (projection, -50.0),
+                    (projection, 0.0),
+                    (0.0, 0.0),
+                )
+            ),
+            k_length_mm=projection,
+            equivalent_surface_lengths_mm=(projection, projection),
+            proof_method="section_area_over_thickness_k_half",
+            source_handles=(),
+            candidate_count=1,
+        ),
+        longitudinal=proof,
+        transformed_entities=transformed,
+        metrics=metrics,
+    )
+    output = tmp_path / "mixed-native.dxf"
+    write_pl_dxf(developed, output)
+    saved = ezdxf.readfile(output)
+    saved_types = {
+        entity.dxftype() for entity in saved.modelspace() if entity.dxf.layer == "PLATE_CUT"
+    }
+    assert saved_types == {"ELLIPSE", "LINE"}
+    assert saved.audit().has_errors is False
+
+
+def test_invalid_mixed_native_candidates_fail_closed() -> None:
+    entities, _ = _mixed_arc_overlapping_line_outline()
+    dangling = entities[1].copy()
+    dangling.dxf.start = (400.0, 0.0)
+    dangling.dxf.end = (400.0, 100.0)
+
+    with pytest.raises(PLSplitError) as error:
+        canonical_boundary_pieces((*entities, dangling))
+
+    assert error.value.code == "LONGITUDINAL_TOPOLOGY"
+
+
 def test_overlapping_collinear_boundary_fragments_are_canonicalized(
     tmp_path: Path,
 ) -> None:
@@ -1376,26 +1497,19 @@ def test_competing_overlap_cycles_select_the_proven_native_boundary() -> None:
     assert all(piece.is_noded_piece for piece in pieces)
 
 
-def test_opposite_short_end_offsets_keep_a_trailing_station_band() -> None:
+def test_three_end_near_events_cannot_bypass_a_shared_wide_station() -> None:
     entities, polygon = _line_outline(
         (
             (0.0, 100.0),
-            (790.0, 100.0),
-            (800.0, 0.0),
+            (90.0, 100.0),
+            (100.0, 80.0),
+            (100.0, 20.0),
             (10.0, 0.0),
+            (0.0, 0.0),
         )
     )
 
-    proof = analyze_longitudinal_outline(entities, polygon, thickness_mm=30.0)
+    with pytest.raises(PLSplitError) as error:
+        analyze_longitudinal_outline(entities, polygon, thickness_mm=15.0)
 
-    stations = (
-        *(interval.left_station for interval in proof.intervals),
-        proof.intervals[-1].right_station,
-    )
-    assert tuple((station.upper_x_mm, station.lower_x_mm) for station in stations) == (
-        (0.0, 0.0),
-        (10.0, 10.0),
-        (790.0, 800.0),
-    )
-    assert proof.carrier_interval_indices == (1,)
-    assert proof.selection_reason == "unique_longest_body"
+    assert error.value.code == "STATION_BAND_TOO_WIDE"
