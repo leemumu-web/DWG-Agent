@@ -41,7 +41,7 @@ def test_development_uses_the_largest_of_projection_k_and_bom_lengths() -> None:
     ("source", "expected"),
     [
         (Decimal("10.0"), Decimal("10.0")),
-        (Decimal("10.0000004"), Decimal("10.0")),
+        (Decimal("10.0000004"), Decimal("10.1")),
         (Decimal("10.000002"), Decimal("10.1")),
         (Decimal("10.099999"), Decimal("10.1")),
         (Decimal("10.1000011"), Decimal("10.2")),

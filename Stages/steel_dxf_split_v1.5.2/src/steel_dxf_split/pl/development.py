@@ -1,18 +1,17 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
+from decimal import ROUND_CEILING, Decimal
 from math import isfinite
 
 from ezdxf.entities import DXFEntity
 from ezdxf.math import Matrix44
 from ezdxf.transform import copies
 
-from .contracts import DevelopmentMetrics, PLSplitError
+from .contracts import DevelopmentMetrics, DevelopmentTarget, PLSplitError
 
 K_FACTOR = 0.5
 _TENTH_MM = Decimal("0.1")
-_FLOAT_NOISE_MM = Decimal("0.000001")
 
 
 def _positive_finite(value: float, name: str) -> float:
@@ -32,10 +31,28 @@ def ceil_tenth_mm(value_mm: float | Decimal) -> Decimal:
     value = value_mm if isinstance(value_mm, Decimal) else Decimal(str(value_mm))
     if not value.is_finite() or value <= 0:
         raise PLSplitError("INVALID_LENGTH", "展开长度必须是正的有限毫米值。")
-    lower_tenth = value.quantize(_TENTH_MM, rounding=ROUND_FLOOR)
-    if value - lower_tenth <= _FLOAT_NOISE_MM:
-        value = lower_tenth
     return value.quantize(_TENTH_MM, rounding=ROUND_CEILING)
+
+
+def calculate_target(
+    *,
+    projection_length_mm: float,
+    k_length_mm: float,
+    bom_length_mm: float,
+) -> DevelopmentTarget:
+    projection = _positive_finite(projection_length_mm, "主视图投影长度")
+    k_length = _positive_finite(k_length_mm, "K=0.5中性层长度")
+    bom = _positive_finite(bom_length_mm, "材料表长度")
+    raw = max(projection, k_length, bom)
+    target = float(ceil_tenth_mm(raw))
+    return DevelopmentTarget(
+        projection_length_mm=projection,
+        k_length_mm=k_length,
+        bom_length_mm=bom,
+        raw_length_mm=raw,
+        target_length_mm=target,
+        total_extension_mm=target - projection,
+    )
 
 
 def calculate_development(
@@ -45,23 +62,24 @@ def calculate_development(
     bom_length_mm: float,
     anchor_x_mm: float,
 ) -> DevelopmentMetrics:
-    projection = _positive_finite(projection_length_mm, "主视图投影长度")
-    bom = _positive_finite(bom_length_mm, "材料表长度")
     anchor = float(anchor_x_mm)
     if not isfinite(anchor):
         raise PLSplitError("INVALID_ANCHOR", "主视图左端锚点必须是有限坐标。")
     k_length = neutral_axis_length(surface_lengths_mm)
-    raw = max(projection, k_length, bom)
-    target = float(ceil_tenth_mm(raw))
+    target = calculate_target(
+        projection_length_mm=projection_length_mm,
+        k_length_mm=k_length,
+        bom_length_mm=bom_length_mm,
+    )
     return DevelopmentMetrics(
-        projection_length_mm=projection,
+        projection_length_mm=target.projection_length_mm,
         surface_lengths_mm=tuple(sorted((float(surface_lengths_mm[0]), float(surface_lengths_mm[1])))),
         k_factor=K_FACTOR,
-        k_length_mm=k_length,
-        bom_length_mm=bom,
-        raw_length_mm=raw,
-        target_length_mm=target,
-        scale_x=target / projection,
+        k_length_mm=target.k_length_mm,
+        bom_length_mm=target.bom_length_mm,
+        raw_length_mm=target.raw_length_mm,
+        target_length_mm=target.target_length_mm,
+        scale_x=target.target_length_mm / target.projection_length_mm,
         anchor_x_mm=anchor,
     )
 

@@ -15,6 +15,16 @@ class PLSplitError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class DevelopmentTarget:
+    projection_length_mm: float
+    k_length_mm: float
+    bom_length_mm: float
+    raw_length_mm: float
+    target_length_mm: float
+    total_extension_mm: float
+
+
+@dataclass(frozen=True, slots=True)
 class DevelopmentMetrics:
     projection_length_mm: float
     surface_lengths_mm: tuple[float, float]
@@ -25,6 +35,48 @@ class DevelopmentMetrics:
     target_length_mm: float
     scale_x: float
     anchor_x_mm: float
+
+
+@dataclass(frozen=True, slots=True)
+class StationBand:
+    index: int
+    upper_x_mm: float
+    lower_x_mm: float
+    source_entity_indices: tuple[int, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class LongitudinalIntervalEvidence:
+    index: int
+    left_station: StationBand
+    right_station: StationBand
+    upper_entity_indices: tuple[int, ...]
+    lower_entity_indices: tuple[int, ...]
+    upper_span_mm: float
+    lower_span_mm: float
+    upper_delta_y_mm: float
+    lower_delta_y_mm: float
+    is_end_feature: bool
+    is_turn_candidate: bool
+    source_handles: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class LongitudinalProof:
+    intervals: tuple[LongitudinalIntervalEvidence, ...]
+    carrier_interval_indices: tuple[int, ...]
+    selection_reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class DevelopedIntervalMetrics:
+    index: int
+    source_upper_span_mm: float
+    source_lower_span_mm: float
+    output_upper_span_mm: float
+    output_lower_span_mm: float
+    downstream_shift_mm: float
+    is_carrier: bool
 
 
 @dataclass(frozen=True, slots=True)
