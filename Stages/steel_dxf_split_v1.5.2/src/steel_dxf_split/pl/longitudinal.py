@@ -559,6 +559,15 @@ def _required_event_partners(
     return tuple(upper_partners), tuple(lower_partners)
 
 
+def _station_width_within_limit(width_mm: float, limit_mm: float) -> bool:
+    return width_mm <= limit_mm or isclose(
+        width_mm,
+        limit_mm,
+        rel_tol=0.0,
+        abs_tol=_FLOAT_EPSILON_MM,
+    )
+
+
 def _align_events(
     upper: tuple[_SideEvent, ...],
     lower: tuple[_SideEvent, ...],
@@ -576,14 +585,25 @@ def _align_events(
         candidates: list[tuple[float, int, tuple[str, ...]]] = []
         if first < len(upper) and second < len(lower):
             required_match = upper_partners[first] == second and lower_partners[second] == first
-            unconstrained_match = upper_partners[first] is None and lower_partners[second] is None
+            match_width = abs(upper[first].x_mm - lower[second].x_mm)
+            independently_projectable = (
+                upper[first].projection_eligible and lower[second].projection_eligible
+            )
+            unconstrained_match = (
+                upper_partners[first] is None
+                and lower_partners[second] is None
+                and (
+                    not independently_projectable
+                    or _station_width_within_limit(match_width, station_limit_mm)
+                )
+            )
             if required_match or unconstrained_match:
                 tail = solve(first + 1, second + 1)
                 if tail is not None:
                     cost, operations = tail
                     candidates.append(
                         (
-                            abs(upper[first].x_mm - lower[second].x_mm) + cost,
+                            match_width + cost,
                             0,
                             ("match", *operations),
                         )
@@ -745,12 +765,7 @@ def _station_bands(
     result: list[StationBand] = []
     for index, band in enumerate(raw):
         width = abs(band.upper_x_mm - band.lower_x_mm)
-        if width > limit and not isclose(
-            width,
-            limit,
-            rel_tol=0.0,
-            abs_tol=_FLOAT_EPSILON_MM,
-        ):
+        if not _station_width_within_limit(width, limit):
             raise PLSplitError(
                 "STATION_BAND_TOO_WIDE",
                 "纵向站带的上下边界错位超过板厚允许值。",

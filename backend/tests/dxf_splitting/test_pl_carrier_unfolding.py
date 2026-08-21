@@ -501,6 +501,42 @@ def test_opposite_independent_ledges_project_instead_of_forming_a_false_pair() -
     assert proof.selection_reason == "unique_longest_body"
 
 
+def test_near_opposite_independent_ledges_project_above_station_limit() -> None:
+    entities, polygon = _paired_outline(
+        (
+            (0.0, 100.0),
+            (10.0, 100.0),
+            (20.0, 105.0),
+            (70.0, 105.0),
+            (80.0, 100.0),
+        ),
+        (
+            (0.0, 0.0),
+            (10.0, 5.0),
+            (60.0, 5.0),
+            (70.0, 0.0),
+            (80.0, 0.0),
+        ),
+    )
+
+    proof = analyze_longitudinal_outline(entities, polygon, thickness_mm=30.0)
+
+    stations = (
+        *(interval.left_station for interval in proof.intervals),
+        proof.intervals[-1].right_station,
+    )
+    assert tuple((station.upper_x_mm, station.lower_x_mm) for station in stations) == (
+        (0.0, 0.0),
+        (10.0, 10.0),
+        (20.0, 20.0),
+        (60.0, 60.0),
+        (70.0, 70.0),
+        (80.0, 80.0),
+    )
+    assert proof.carrier_interval_indices == (2,)
+    assert proof.selection_reason == "unique_longest_body"
+
+
 def test_mixed_native_curve_is_segmented_into_longitudinal_and_end_chains() -> None:
     entities, polygon = _mixed_curve_outline()
 
