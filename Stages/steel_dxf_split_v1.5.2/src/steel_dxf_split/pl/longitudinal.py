@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import cache
-from math import dist, isclose, isfinite
+from math import atan2, cos, degrees, dist, isclose, isfinite, sin
+from typing import cast
 
-from ezdxf.entities import DXFEntity
+from ezdxf.entities import Arc, DXFEntity, Ellipse, Line
 from shapely.geometry import (
     GeometryCollection,
     LineString,
@@ -26,7 +27,7 @@ from .geometry import FLATTEN_SAGITTA_MM, TOPOLOGY_TOLERANCE_MM, flatten_entity
 _SIDE_TOLERANCE_MM = TOPOLOGY_TOLERANCE_MM + FLATTEN_SAGITTA_MM
 _TURN_TOLERANCE_MM = 0.001
 _FLOAT_EPSILON_MM = 1e-9
-_TANGENT_SINE_TOLERANCE = 1e-4
+_COURSE_CONTINUITY_EPSILON = 1e-9
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,7 +73,8 @@ class _SideCourse:
 class _SideEvent:
     x_mm: float
     source_entity_indices: tuple[int, ...]
-    projectable: bool
+    projection_eligible: bool
+    correspondence_ids: frozenset[int]
 
 
 @dataclass(frozen=True, slots=True)
@@ -326,23 +328,86 @@ def _ordered_side_fragments(
     return tuple(fragments if increasing else reversed(fragments))
 
 
-def _tangentially_continuous(
+def _native_course_geometry(
+    fragment: _SideFragment,
+    *,
+    at_left: bool,
+) -> tuple[tuple[float, float], float]:
+    point = fragment.points[0 if at_left else -1]
+    entity = fragment.edge.entity
+    entity_type = entity.dxftype()
+    if entity_type == "LINE":
+        line = cast(Line, entity)
+        tangent = (
+            float(line.dxf.end.x - line.dxf.start.x),
+            float(line.dxf.end.y - line.dxf.start.y),
+        )
+        curvature = 0.0
+    elif entity_type == "ARC":
+        arc = cast(Arc, entity)
+        construction = arc.construction_tool()
+        angle = degrees(
+            atan2(
+                point[1] - float(construction.center.y),
+                point[0] - float(construction.center.x),
+            )
+        )
+        native = next(iter(construction.tangents((angle,))))
+        tangent = (float(native.x), float(native.y))
+        curvature = 1.0 / float(construction.radius)
+    elif entity_type == "ELLIPSE":
+        ellipse = cast(Ellipse, entity)
+        construction = ellipse.construction_tool()
+        param = next(iter(construction.params_from_vertices((point,))))
+        native = next(iter(construction.tangents((param,))))
+        tangent = (float(native.x), float(native.y))
+        major = float(construction.major_axis.magnitude)
+        minor = float(construction.minor_axis.magnitude)
+        denominator = (major * major * sin(param) ** 2 + minor * minor * cos(param) ** 2) ** 1.5
+        curvature = major * minor / denominator
+    else:
+        raise _topology_error(f"主视图纵向链含不支持的实体：{entity_type}")
+
+    length = dist((0.0, 0.0), tangent)
+    if length <= _FLOAT_EPSILON_MM:
+        raise _topology_error("主视图纵向链端点没有有效切向。")
+    tangent = (tangent[0] / length, tangent[1] / length)
+    if at_left:
+        chord = (
+            fragment.points[1][0] - fragment.points[0][0],
+            fragment.points[1][1] - fragment.points[0][1],
+        )
+    else:
+        chord = (
+            fragment.points[-1][0] - fragment.points[-2][0],
+            fragment.points[-1][1] - fragment.points[-2][1],
+        )
+    if tangent[0] * chord[0] + tangent[1] * chord[1] < 0.0:
+        tangent = (-tangent[0], -tangent[1])
+        curvature = -curvature
+    return tangent, curvature
+
+
+def _same_geometric_course(
     first: _SideFragment,
     second: _SideFragment,
 ) -> bool:
     if dist(first.points[-1], second.points[0]) > TOPOLOGY_TOLERANCE_MM:
         return False
-    first_dx = first.points[-1][0] - first.points[-2][0]
-    first_dy = first.points[-1][1] - first.points[-2][1]
-    second_dx = second.points[1][0] - second.points[0][0]
-    second_dy = second.points[1][1] - second.points[0][1]
-    first_length = dist((0.0, 0.0), (first_dx, first_dy))
-    second_length = dist((0.0, 0.0), (second_dx, second_dy))
-    if first_length <= 1e-12 or second_length <= 1e-12:
-        return False
-    cross = abs(first_dx * second_dy - first_dy * second_dx)
-    dot = first_dx * second_dx + first_dy * second_dy
-    return dot > 0.0 and cross <= _TANGENT_SINE_TOLERANCE * first_length * second_length
+    first_tangent, first_curvature = _native_course_geometry(first, at_left=False)
+    second_tangent, second_curvature = _native_course_geometry(second, at_left=True)
+    cross = abs(first_tangent[0] * second_tangent[1] - first_tangent[1] * second_tangent[0])
+    dot = first_tangent[0] * second_tangent[0] + first_tangent[1] * second_tangent[1]
+    return (
+        dot >= 1.0 - _COURSE_CONTINUITY_EPSILON
+        and cross <= _COURSE_CONTINUITY_EPSILON
+        and isclose(
+            first_curvature,
+            second_curvature,
+            rel_tol=_COURSE_CONTINUITY_EPSILON,
+            abs_tol=_COURSE_CONTINUITY_EPSILON,
+        )
+    )
 
 
 def _coalesce_fragments(
@@ -350,7 +415,7 @@ def _coalesce_fragments(
 ) -> tuple[_SideCourse, ...]:
     groups: list[list[_SideFragment]] = []
     for fragment in fragments:
-        if groups and _tangentially_continuous(groups[-1][-1], fragment):
+        if groups and _same_geometric_course(groups[-1][-1], fragment):
             groups[-1].append(fragment)
         else:
             groups.append([fragment])
@@ -363,7 +428,7 @@ def _side_courses(
 ) -> tuple[
     tuple[_SideCourse, ...],
     tuple[_SideCourse, ...],
-    frozenset[tuple[int, str]],
+    frozenset[tuple[int, str, int]],
 ]:
     by_side: dict[str, list[_SideFragment]] = {"upper": [], "lower": []}
     traversal: list[tuple[str, _SideFragment]] = []
@@ -375,23 +440,25 @@ def _side_courses(
     ordered = {side: _ordered_side_fragments(fragments) for side, fragments in by_side.items()}
     if not ordered["upper"] or not ordered["lower"]:
         raise _topology_error("主视图没有形成可配对的上下纵向边界。")
-    end_linked_boundaries: set[tuple[int, str]] = set()
+    end_transition_links: set[tuple[int, str, int]] = set()
     cyclic_traversal = (*traversal, traversal[0])
-    for (first_side, first), (second_side, second) in zip(
-        cyclic_traversal,
-        cyclic_traversal[1:],
-        strict=False,
+    for transition_id, ((first_side, first), (second_side, second)) in enumerate(
+        zip(
+            cyclic_traversal,
+            cyclic_traversal[1:],
+            strict=False,
+        )
     ):
         if first_side == second_side:
             continue
         first_opposite_end = "left" if first.traverses_left_to_right else "right"
         second_opposite_end = "right" if second.traverses_left_to_right else "left"
-        end_linked_boundaries.add((first.path_index, first_opposite_end))
-        end_linked_boundaries.add((second.path_index, second_opposite_end))
+        end_transition_links.add((first.path_index, first_opposite_end, transition_id))
+        end_transition_links.add((second.path_index, second_opposite_end, transition_id))
     return (
         _coalesce_fragments(ordered["upper"]),
         _coalesce_fragments(ordered["lower"]),
-        frozenset(end_linked_boundaries),
+        frozenset(end_transition_links),
     )
 
 
@@ -399,28 +466,41 @@ def _side_events(
     courses: tuple[_SideCourse, ...],
     polygon: Polygon,
     thickness_mm: float,
-    end_linked_boundaries: frozenset[tuple[int, str]],
+    end_transition_links: frozenset[tuple[int, str, int]],
 ) -> tuple[_SideEvent, ...]:
-    values: list[tuple[float, tuple[int, ...], bool]] = []
+    links_by_boundary: dict[tuple[int, str], set[int]] = {}
+    for path_index, boundary, transition_id in end_transition_links:
+        links_by_boundary.setdefault((path_index, boundary), set()).add(transition_id)
+    values: list[tuple[float, tuple[int, ...], frozenset[int]]] = []
     for course in courses:
         first = course.fragments[0]
         last = course.fragments[-1]
+        left_links = frozenset(
+            transition_id
+            for fragment in course.fragments
+            for transition_id in links_by_boundary.get((fragment.path_index, "left"), ())
+        )
+        right_links = frozenset(
+            transition_id
+            for fragment in course.fragments
+            for transition_id in links_by_boundary.get((fragment.path_index, "right"), ())
+        )
         values.append(
             (
                 course.left_x,
                 (first.edge.index,),
-                (first.path_index, "left") in end_linked_boundaries,
+                left_links,
             )
         )
         values.append(
             (
                 course.right_x,
                 (last.edge.index,),
-                (last.path_index, "right") in end_linked_boundaries,
+                right_links,
             )
         )
     values.sort(key=lambda item: (item[0], item[1]))
-    groups: list[list[tuple[float, tuple[int, ...], bool]]] = []
+    groups: list[list[tuple[float, tuple[int, ...], frozenset[int]]]] = []
     for value in values:
         if not groups or value[0] - groups[-1][-1][0] > TOPOLOGY_TOLERANCE_MM:
             groups.append([value])
@@ -433,64 +513,111 @@ def _side_events(
         sources = tuple(
             sorted({source for _, source_indices, _ in group for source in source_indices})
         )
-        end_linked = any(value[2] for value in group)
+        correspondence_ids = frozenset(
+            transition_id for value in group for transition_id in value[2]
+        )
         near_end = min(x_mm - min_x, max_x - x_mm) <= thickness_mm + 0.1
         events.append(
             _SideEvent(
                 x_mm=x_mm,
                 source_entity_indices=sources,
-                projectable=(index not in {0, len(groups) - 1} and (near_end or end_linked)),
+                projection_eligible=(
+                    index not in {0, len(groups) - 1} and (near_end or bool(correspondence_ids))
+                ),
+                correspondence_ids=correspondence_ids,
             )
         )
     return tuple(events)
 
 
+def _required_event_partners(
+    upper: tuple[_SideEvent, ...],
+    lower: tuple[_SideEvent, ...],
+) -> tuple[tuple[int | None, ...], tuple[int | None, ...]]:
+    def internal_links(events: tuple[_SideEvent, ...]) -> dict[int, int]:
+        result: dict[int, int] = {}
+        for index, event in enumerate(events[1:-1], start=1):
+            for transition_id in event.correspondence_ids:
+                if transition_id in result and result[transition_id] != index:
+                    raise _topology_error("同一端链转折对应到多个纵向站位。")
+                result[transition_id] = index
+        return result
+
+    upper_links = internal_links(upper)
+    lower_links = internal_links(lower)
+    upper_partners: list[int | None] = [None] * len(upper)
+    lower_partners: list[int | None] = [None] * len(lower)
+    for transition_id in sorted(upper_links.keys() & lower_links.keys()):
+        upper_index = upper_links[transition_id]
+        lower_index = lower_links[transition_id]
+        if upper_partners[upper_index] not in {None, lower_index}:
+            raise _topology_error("上边界站位对应到多个下边界站位。")
+        if lower_partners[lower_index] not in {None, upper_index}:
+            raise _topology_error("下边界站位对应到多个上边界站位。")
+        upper_partners[upper_index] = lower_index
+        lower_partners[lower_index] = upper_index
+    return tuple(upper_partners), tuple(lower_partners)
+
+
 def _align_events(
     upper: tuple[_SideEvent, ...],
     lower: tuple[_SideEvent, ...],
+    station_limit_mm: float,
 ) -> tuple[_RawStationBand, ...]:
+    upper_partners, lower_partners = _required_event_partners(upper, lower)
+
     @cache
     def solve(
         first: int,
         second: int,
-    ) -> tuple[int, float, tuple[str, ...]] | None:
+    ) -> tuple[float, tuple[str, ...]] | None:
         if first == len(upper) and second == len(lower):
-            return 0, 0.0, ()
-        candidates: list[tuple[int, float, int, tuple[str, ...]]] = []
+            return 0.0, ()
+        candidates: list[tuple[float, int, tuple[str, ...]]] = []
         if first < len(upper) and second < len(lower):
-            tail = solve(first + 1, second + 1)
-            if tail is not None:
-                skips, distance_sum, operations = tail
-                candidates.append(
-                    (
-                        skips,
-                        abs(upper[first].x_mm - lower[second].x_mm) + distance_sum,
-                        0,
-                        ("match", *operations),
+            required_match = upper_partners[first] == second and lower_partners[second] == first
+            unconstrained_match = upper_partners[first] is None and lower_partners[second] is None
+            if required_match or unconstrained_match:
+                tail = solve(first + 1, second + 1)
+                if tail is not None:
+                    cost, operations = tail
+                    candidates.append(
+                        (
+                            abs(upper[first].x_mm - lower[second].x_mm) + cost,
+                            0,
+                            ("match", *operations),
+                        )
                     )
-                )
-        if first < len(upper) and upper[first].projectable:
+        if (
+            first < len(upper)
+            and upper[first].projection_eligible
+            and upper_partners[first] is None
+        ):
             tail = solve(first + 1, second)
             if tail is not None:
-                skips, distance_sum, operations = tail
-                candidates.append((skips + 1, distance_sum, 1, ("upper", *operations)))
-        if second < len(lower) and lower[second].projectable:
+                cost, operations = tail
+                candidates.append((station_limit_mm + cost, 1, ("upper", *operations)))
+        if (
+            second < len(lower)
+            and lower[second].projection_eligible
+            and lower_partners[second] is None
+        ):
             tail = solve(first, second + 1)
             if tail is not None:
-                skips, distance_sum, operations = tail
-                candidates.append((skips + 1, distance_sum, 2, ("lower", *operations)))
+                cost, operations = tail
+                candidates.append((station_limit_mm + cost, 2, ("lower", *operations)))
         if not candidates:
             return None
-        skips, distance_sum, _, operations = min(
+        cost, _, operations = min(
             candidates,
-            key=lambda item: (item[0], item[1], item[2]),
+            key=lambda item: (item[0], item[1]),
         )
-        return skips, distance_sum, operations
+        return cost, operations
 
     solution = solve(0, 0)
     if solution is None:
         raise _topology_error("上下纵向链的内部站位没有唯一拓扑对应。")
-    _, _, operations = solution
+    _, operations = solution
     upper_index = 0
     lower_index = 0
     bands: list[_RawStationBand] = []
@@ -591,14 +718,16 @@ def _station_bands(
     polygon: Polygon,
     upper: tuple[_SideCourse, ...],
     lower: tuple[_SideCourse, ...],
-    end_linked_boundaries: frozenset[tuple[int, str]],
+    end_transition_links: frozenset[tuple[int, str, int]],
     thickness_mm: float,
 ) -> tuple[StationBand, ...]:
+    limit = thickness_mm + 0.1
     raw = list(
         _merge_bands(
             _align_events(
-                _side_events(upper, polygon, thickness_mm, end_linked_boundaries),
-                _side_events(lower, polygon, thickness_mm, end_linked_boundaries),
+                _side_events(upper, polygon, thickness_mm, end_transition_links),
+                _side_events(lower, polygon, thickness_mm, end_transition_links),
+                limit,
             )
         )
     )
@@ -613,7 +742,6 @@ def _station_bands(
     if len(raw) < 2:
         raise _topology_error("主视图没有形成至少一个纵向区间。")
 
-    limit = thickness_mm + 0.1
     result: list[StationBand] = []
     for index, band in enumerate(raw):
         width = abs(band.upper_x_mm - band.lower_x_mm)
@@ -841,13 +969,13 @@ def analyze_longitudinal_outline(
     )
     if any(not boundary_zone.covers(LineString(edge.points)) for edge in ring):
         raise _topology_error("主视图纵向外边界与材料区域不一致。")
-    upper, lower, end_linked_boundaries = _side_courses(ring, polygon)
+    upper, lower, end_transition_links = _side_courses(ring, polygon)
     stations = _station_bands(
         ring,
         polygon,
         upper,
         lower,
-        end_linked_boundaries,
+        end_transition_links,
         thickness_mm,
     )
     intervals = _intervals(ring, polygon, upper, lower, stations)
