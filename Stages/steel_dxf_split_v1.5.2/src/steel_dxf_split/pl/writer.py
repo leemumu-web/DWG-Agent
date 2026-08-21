@@ -66,14 +66,57 @@ class _BoundaryTopology:
 
 def _boundary_topology(
     entities: tuple[DXFEntity, ...],
+    required_points: tuple[tuple[float, float], ...] = (),
 ) -> _BoundaryTopology:
     endpoints: list[tuple[float, float]] = []
     raw_edges: list[tuple[int, int]] = []
     for entity in entities:
         points = flatten_entity(entity)
+        split_points: list[tuple[float, tuple[float, float]]] = []
+        if entity.dxftype() == "LINE":
+            start_point = points[0]
+            end_point = points[-1]
+            delta_x = end_point[0] - start_point[0]
+            delta_y = end_point[1] - start_point[1]
+            length_squared = delta_x * delta_x + delta_y * delta_y
+            if length_squared > 0.0:
+                for point in required_points:
+                    parameter = (
+                        (point[0] - start_point[0]) * delta_x
+                        + (point[1] - start_point[1]) * delta_y
+                    ) / length_squared
+                    if not 0.0 < parameter < 1.0:
+                        continue
+                    projected = (
+                        start_point[0] + parameter * delta_x,
+                        start_point[1] + parameter * delta_y,
+                    )
+                    if dist(projected, point) <= _DIMENSION_TOLERANCE_MM:
+                        split_points.append((parameter, point))
+        unique_split_points: list[tuple[float, tuple[float, float]]] = []
+        for parameter, point in sorted(split_points):
+            if (
+                dist(point, points[0]) <= _DIMENSION_TOLERANCE_MM
+                or dist(point, points[-1]) <= _DIMENSION_TOLERANCE_MM
+                or (
+                    unique_split_points
+                    and dist(point, unique_split_points[-1][1])
+                    <= _DIMENSION_TOLERANCE_MM
+                )
+            ):
+                continue
+            unique_split_points.append((parameter, point))
+        entity_points = (
+            points[0],
+            *(point for _, point in unique_split_points),
+            points[-1],
+        )
         start = len(endpoints)
-        endpoints.extend((points[0], points[-1]))
-        raw_edges.append((start, start + 1))
+        endpoints.extend(entity_points)
+        raw_edges.extend(
+            (start + index, start + index + 1)
+            for index in range(len(entity_points) - 1)
+        )
     parents = list(range(len(endpoints)))
 
     def find(index: int) -> int:
@@ -242,6 +285,52 @@ def _source_station_y(
     return max(values) if upper else min(values)
 
 
+def _source_station_is_line_interior(
+    developed: DevelopedPlate,
+    station_index: int,
+    station_x: float,
+    *,
+    upper: bool,
+) -> bool:
+    intervals = developed.longitudinal.intervals
+    adjacent = (
+        (intervals[0],)
+        if station_index == 0
+        else (intervals[-1],)
+        if station_index == len(intervals)
+        else (intervals[station_index - 1], intervals[station_index])
+    )
+    source_indices = {
+        source_index
+        for interval in adjacent
+        for source_index in (
+            interval.upper_entity_indices if upper else interval.lower_entity_indices
+        )
+    }
+    target_y = _source_station_y(
+        developed,
+        station_index,
+        station_x,
+        upper=upper,
+    )
+    for source_index in source_indices:
+        entity = developed.outline.outer_entities[source_index]
+        if entity.dxftype() != "LINE":
+            continue
+        start = entity.dxf.start
+        end = entity.dxf.end
+        delta_x = float(end.x - start.x)
+        if abs(delta_x) <= 1e-12:
+            continue
+        parameter = (station_x - float(start.x)) / delta_x
+        if not 1e-9 < parameter < 1.0 - 1e-9:
+            continue
+        y = float(start.y + (end.y - start.y) * parameter)
+        if abs(y - target_y) <= _DIMENSION_TOLERANCE_MM:
+            return True
+    return False
+
+
 def _station_nodes(
     topology: _BoundaryTopology,
     expected_points: tuple[tuple[float, float], ...],
@@ -402,7 +491,23 @@ def _validate_saved_intervals(
         tuple(expected_upper),
         tuple(expected_lower),
     )
-    topology = _boundary_topology(plate_entities)
+    virtual_station_points = tuple(
+        point
+        for upper, source_values, expected_points in (
+            (True, source_upper, expected_upper_points),
+            (False, source_lower, expected_lower_points),
+        )
+        for index, (source_x, point) in enumerate(
+            zip(source_values, expected_points, strict=True)
+        )
+        if _source_station_is_line_interior(
+            developed,
+            index,
+            source_x,
+            upper=upper,
+        )
+    )
+    topology = _boundary_topology(plate_entities, virtual_station_points)
     upper_nodes = _station_nodes(topology, expected_upper_points)
     lower_nodes = _station_nodes(topology, expected_lower_points)
     measured_upper = _designated_chain_points(topology, upper_nodes, lower_nodes)

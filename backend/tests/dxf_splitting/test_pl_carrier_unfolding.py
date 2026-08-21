@@ -419,6 +419,40 @@ def test_q7_b_404_uses_one_total_ceiling_without_per_interval_growth() -> None:
     assert target.total_extension_mm < 8.2
 
 
+def test_slanted_end_station_does_not_remain_as_an_output_line_split() -> None:
+    entities, polygon = _line_outline(
+        (
+            (0.0, 350.0),
+            (671.577935, 350.0),
+            (671.577935, 0.0),
+            (14.089207, 0.0),
+        )
+    )
+    proof = analyze_longitudinal_outline(entities, polygon, thickness_mm=40.0)
+
+    transformed, metrics = transform_outline(
+        entities,
+        longitudinal=proof,
+        projection_length_mm=671.577935,
+        k_length_mm=815.949,
+        bom_length_mm=816.0,
+        anchor_x_mm=0.0,
+    )
+
+    assert metrics.target_length_mm == pytest.approx(816.0)
+    assert tuple(entity.dxftype() for entity in transformed) == ("LINE",) * 4
+    actual = validate_closed_outline(transformed, tolerance_mm=0.1)
+    expected = Polygon(
+        (
+            (0.0, 350.0),
+            (816.0, 350.0),
+            (816.0, 0.0),
+            (14.089207, 0.0),
+        )
+    )
+    assert actual.symmetric_difference(expected).area <= 0.1
+
+
 def test_q7_piecewise_transform_grows_only_the_carrier_interval() -> None:
     entities, polygon = _q7_like_outline()
     proof = analyze_longitudinal_outline(entities, polygon, thickness_mm=30.0)

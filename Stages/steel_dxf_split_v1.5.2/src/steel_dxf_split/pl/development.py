@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import ROUND_CEILING, Decimal
 from itertools import pairwise
-from math import acos, atan2, degrees, hypot, isfinite, tau
+from math import acos, atan2, degrees, dist, hypot, isfinite, tau
 from typing import cast
 
 from ezdxf import bbox
@@ -375,8 +375,8 @@ def _transform_groups(
     upper_scale: float,
     lower_scale: float,
     downstream_shift: float,
-) -> tuple[DXFEntity, ...]:
-    grouped: dict[str, list[DXFEntity]] = {
+) -> tuple[_NativePiece, ...]:
+    grouped: dict[str, list[_NativePiece]] = {
         "identity": [],
         "carrier_upper": [],
         "carrier_lower": [],
@@ -384,7 +384,7 @@ def _transform_groups(
     }
     for piece in pieces:
         grouped[_piece_region(piece, longitudinal, first_carrier, last_carrier)].append(
-            piece.entity
+            piece
         )
     matrices = {
         "identity": Matrix44(),
@@ -400,20 +400,96 @@ def _transform_groups(
         ),
         "downstream": Matrix44.translate(downstream_shift, 0.0, 0.0),
     }
-    transformed: list[DXFEntity] = []
+    transformed: list[_NativePiece] = []
     for name in ("identity", "carrier_upper", "carrier_lower", "downstream"):
         source = tuple(grouped[name])
         if not source:
             continue
-        log, result = copies(source, matrices[name])
+        log, result = copies(tuple(piece.entity for piece in source), matrices[name])
         if len(log) or len(result) != len(source):
             messages = "; ".join(log.messages())
             raise PLSplitError(
                 "TRANSFORM_FAILED",
                 f"主视图原生实体无法完整执行分区变换。{messages}",
             )
-        transformed.extend(result)
+        transformed.extend(
+            _NativePiece(piece.source_index, entity)
+            for piece, entity in zip(source, result, strict=True)
+        )
     return tuple(transformed)
+
+
+def _merge_collinear_lines(
+    first: DXFEntity,
+    second: DXFEntity,
+) -> DXFEntity | None:
+    if first.dxftype() != "LINE" or second.dxftype() != "LINE":
+        return None
+    first_points = (first.dxf.start, first.dxf.end)
+    second_points = (second.dxf.start, second.dxf.end)
+    matches = tuple(
+        (first_index, second_index)
+        for first_index, first_point in enumerate(first_points)
+        for second_index, second_point in enumerate(second_points)
+        if dist(
+            (float(first_point.x), float(first_point.y)),
+            (float(second_point.x), float(second_point.y)),
+        )
+        <= _DIMENSION_TOLERANCE_MM
+    )
+    if len(matches) != 1:
+        return None
+    first_index, second_index = matches[0]
+    shared = first_points[first_index]
+    first_outer = first_points[1 - first_index]
+    second_outer = second_points[1 - second_index]
+    first_vector = (
+        float(shared.x - first_outer.x),
+        float(shared.y - first_outer.y),
+    )
+    second_vector = (
+        float(second_outer.x - shared.x),
+        float(second_outer.y - shared.y),
+    )
+    first_length = hypot(*first_vector)
+    second_length = hypot(*second_vector)
+    if first_length <= _NUMERIC_EPSILON or second_length <= _NUMERIC_EPSILON:
+        return None
+    cross = abs(first_vector[0] * second_vector[1] - first_vector[1] * second_vector[0])
+    if cross > _DIMENSION_TOLERANCE_MM * min(first_length, second_length):
+        return None
+    merged = first.copy()
+    merged.dxf.start = first_outer
+    merged.dxf.end = second_outer
+    return merged
+
+
+def _coalesce_output_lines(
+    pieces: tuple[_NativePiece, ...],
+) -> tuple[_NativePiece, ...]:
+    result = list(pieces)
+    while True:
+        merged_pair: tuple[int, int, _NativePiece] | None = None
+        for first_index, first in enumerate(result):
+            for second_index in range(first_index + 1, len(result)):
+                second = result[second_index]
+                if first.source_index != second.source_index:
+                    continue
+                merged = _merge_collinear_lines(first.entity, second.entity)
+                if merged is not None:
+                    merged_pair = (
+                        first_index,
+                        second_index,
+                        _NativePiece(first.source_index, merged),
+                    )
+                    break
+            if merged_pair is not None:
+                break
+        if merged_pair is None:
+            return tuple(result)
+        first_index, second_index, merged = merged_pair
+        result[first_index] = merged
+        result.pop(second_index)
 
 
 def _developed_intervals(
@@ -526,16 +602,21 @@ def transform_outline(
             station_values[boundary_piece.source_index],
         )
     )
-    transformed = _transform_groups(
-        pieces,
-        longitudinal,
-        first_carrier=first,
-        last_carrier=last,
-        upper_left=upper_left,
-        lower_left=lower_left,
-        upper_scale=upper_scale,
-        lower_scale=lower_scale,
-        downstream_shift=target.total_extension_mm,
+    transformed = tuple(
+        piece.entity
+        for piece in _coalesce_output_lines(
+            _transform_groups(
+                pieces,
+                longitudinal,
+                first_carrier=first,
+                last_carrier=last,
+                upper_left=upper_left,
+                lower_left=lower_left,
+                upper_scale=upper_scale,
+                lower_scale=lower_scale,
+                downstream_shift=target.total_extension_mm,
+            )
+        )
     )
     validate_closed_outline(transformed)
     output_min_x, output_min_y, output_max_x, output_max_y = _outline_bounds(
