@@ -1,14 +1,20 @@
+from dataclasses import replace
 from decimal import Decimal
 from math import asin, pi
+from pathlib import Path
 
 import ezdxf
 import pytest
 from ezdxf.entities import DXFEntity
 from shapely.geometry import Polygon
 from steel_dxf_split.pl.contracts import (
+    DevelopedPlate,
     LongitudinalIntervalEvidence,
     LongitudinalProof,
+    PlateOutline,
+    PLMetadata,
     PLSplitError,
+    SectionProof,
     StationBand,
 )
 from steel_dxf_split.pl.development import calculate_target, ceil_tenth_mm, transform_outline
@@ -268,6 +274,44 @@ def _crossing_curve_outline(
     )
 
 
+def _crossing_curve_developed(
+    curve_kind: str,
+) -> tuple[tuple[DXFEntity, ...], DevelopedPlate]:
+    source_entities, proof = _crossing_curve_outline(curve_kind)
+    source_polygon = validate_closed_outline(source_entities, tolerance_mm=0.1)
+    transformed, metrics = transform_outline(
+        source_entities,
+        longitudinal=proof,
+        projection_length_mm=900.0,
+        k_length_mm=920.0,
+        bom_length_mm=900.0,
+        anchor_x_mm=0.0,
+    )
+    return source_entities, DevelopedPlate(
+        metadata=PLMetadata("q7-b-404", 30.0, 550.0, 900.0),
+        outline=PlateOutline(
+            outer_entities=source_entities,
+            polygon=source_polygon,
+            projection_length_mm=900.0,
+            width_mm=550.0,
+            anchor_x_mm=0.0,
+            source_handles=(),
+            candidate_count=1,
+        ),
+        section=SectionProof(
+            polygon=Polygon(((0.0, -40.0), (920.0, -40.0), (920.0, -10.0), (0.0, -10.0))),
+            k_length_mm=920.0,
+            equivalent_surface_lengths_mm=(920.0, 920.0),
+            proof_method="section_area_over_thickness_k_half",
+            source_handles=(),
+            candidate_count=1,
+        ),
+        longitudinal=proof,
+        transformed_entities=transformed,
+        metrics=metrics,
+    )
+
+
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
@@ -417,6 +461,70 @@ def test_transform_exactly_splits_native_curves_at_station_boundaries(
     )
     assert endpoint_xs == pytest.approx((0.0, 300.0, 620.0, 920.0), abs=0.001)
     assert metrics.intervals[1].output_upper_span_mm == pytest.approx(320.0)
+
+
+def test_saved_validation_accepts_additional_native_segmentation(
+    tmp_path: Path,
+) -> None:
+    from steel_dxf_split.pl.writer import validate_saved_pl_dxf, write_pl_dxf
+
+    source_entities, developed = _crossing_curve_developed("ARC")
+    transformed = developed.transformed_entities
+    output = tmp_path / "q7-b-404.dxf"
+
+    write_pl_dxf(developed, output)
+    saved = ezdxf.readfile(output)
+    saved_plate_entities = tuple(
+        entity for entity in saved.modelspace() if entity.dxf.layer == "PLATE_CUT"
+    )
+    assert len(saved_plate_entities) > len(source_entities)
+    line = max(
+        saved.modelspace().query('LINE[layer=="PLATE_CUT"]'),
+        key=lambda entity: abs(float(entity.dxf.end.x - entity.dxf.start.x)),
+    )
+    start = line.dxf.start
+    end = line.dxf.end
+    midpoint = start.lerp(end, factor=0.5)
+    saved.modelspace().delete_entity(line)
+    saved.modelspace().add_line(start, midpoint, dxfattribs={"layer": "PLATE_CUT"})
+    saved.modelspace().add_line(midpoint, end, dxfattribs={"layer": "PLATE_CUT"})
+    saved.saveas(output)
+
+    result = validate_saved_pl_dxf(output, developed)
+    reopened = ezdxf.readfile(output)
+    labels = list(reopened.modelspace().query('TEXT[layer=="PART_LABEL"]'))
+
+    assert len(reopened.modelspace().query('*[layer=="PLATE_CUT"]')) > len(transformed)
+    assert len(labels) == 1
+    assert labels[0].dxf.text == "p=q7-b-404"
+    assert labels[0].dxf.height == pytest.approx(30.0)
+    assert result.length_mm == pytest.approx(920.0, abs=0.001)
+    assert result.width_mm == pytest.approx(550.0, abs=0.001)
+    assert reopened.audit().has_errors is False
+
+
+def test_saved_validation_rejects_a_shifted_carrier_station(tmp_path: Path) -> None:
+    from steel_dxf_split.pl.writer import write_pl_dxf
+
+    _, developed = _crossing_curve_developed("ARC")
+    carrier_right_x = sum(
+        interval.output_lower_span_mm for interval in developed.metrics.intervals[:2]
+    )
+    tampered = []
+    for entity in developed.transformed_entities:
+        clone = entity.copy()
+        if clone.dxftype() == "LINE":
+            for attribute in ("start", "end"):
+                point = clone.dxf.get(attribute)
+                if abs(float(point.x) - carrier_right_x) <= 0.001:
+                    clone.dxf.set(attribute, (float(point.x) + 5.0, point.y, point.z))
+        tampered.append(clone)
+    altered = replace(developed, transformed_entities=tuple(tampered))
+
+    with pytest.raises(PLSplitError) as error:
+        write_pl_dxf(altered, tmp_path / "shifted-station.dxf")
+
+    assert error.value.code == "OUTPUT_INTERVAL_CONTRACT"
 
 
 def test_visible_middle_turn_wins_without_using_part_identity() -> None:

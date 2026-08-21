@@ -5,12 +5,14 @@ import json
 import os
 import subprocess
 import sys
+from dataclasses import replace
 from decimal import Decimal
 from pathlib import Path
 
 import ezdxf
 import pytest
 from steel_dxf_split.pl.contracts import PLSplitError
+
 from tests.support.paths import REPO_ROOT
 
 
@@ -542,6 +544,7 @@ def test_writer_emits_clean_r2007_mm_layers_label_and_native_downstream_arcs(
     assert len(saved.modelspace().query('ELLIPSE[layer=="PLATE_CUT"]')) == 0
     labels = list(saved.modelspace().query('TEXT[layer=="PART_LABEL"]'))
     assert [label.dxf.text for label in labels] == ["p=q6-b-62"]
+    assert labels[0].dxf.height == pytest.approx(30.0)
     assert labels[0].dxf.style == "SplitChinese"
     assert saved.audit().has_errors is False
     assert result.min_x_mm == pytest.approx(0.0, abs=0.001)
@@ -571,6 +574,29 @@ def test_saved_output_validation_rejects_non_manufacturing_entities(
         writer.validate_saved_pl_dxf(output, developed)
 
     assert error.value.code == "OUTPUT_ENTITY_CONTRACT"
+
+
+def test_writer_rejects_a_pl_label_that_cannot_retain_thirty_mm(
+    tmp_path: Path,
+) -> None:
+    writer = importlib.import_module("steel_dxf_split.pl.writer")
+    source = tmp_path / "curved.dxf"
+    output = tmp_path / "long-label.dxf"
+    _save_curved_geometry_source(source)
+    developed = _developed_plate(source)
+    developed = replace(
+        developed,
+        metadata=replace(
+            developed.metadata,
+            part_number="part-number-that-cannot-fit-at-thirty-millimeters",
+        ),
+    )
+
+    with pytest.raises(PLSplitError) as error:
+        writer.write_pl_dxf(developed, output)
+
+    assert error.value.code == "PL_LABEL_DOES_NOT_FIT"
+    assert not output.exists()
 
 
 def _add_sheet_geometry(
@@ -656,15 +682,43 @@ def test_batch_split_publishes_one_dxf_per_part_and_complete_json_report(
         "q6-b-62.dxf",
         "q6-b-71.dxf",
     }
-    assert report["schema"] == "steel-dxf-split-pl-report/1"
+    assert report["schema"] == "steel-dxf-split-pl-report/2"
     assert [item["part_number"] for item in report["items"]] == [
         "q6-b-62",
         "q6-b-71",
     ]
     assert {item["status"] for item in report["items"]} == {"success"}
     assert report["items"][0]["lengths"]["target_mm"] == pytest.approx(470.0)
+    assert report["items"][0]["lengths"]["total_extension_mm"] == pytest.approx(71.0)
     assert report["items"][0]["geometry"]["source_width_mm"] == pytest.approx(300.0)
     assert report["items"][0]["geometry"]["source_anchor_x_mm"] == pytest.approx(0.0)
+    transform = report["items"][0]["transform"]
+    assert set(transform) == {
+        "carrier_interval_indices",
+        "selection_reason",
+        "total_extension_mm",
+        "carrier_upper_scale_x",
+        "carrier_lower_scale_x",
+        "intervals",
+    }
+    assert transform["carrier_interval_indices"] == [0]
+    assert transform["selection_reason"] == "unique_longest_body"
+    assert transform["total_extension_mm"] == pytest.approx(71.0)
+    assert transform["carrier_upper_scale_x"] == pytest.approx(470.0 / 399.0)
+    assert transform["carrier_lower_scale_x"] == pytest.approx(470.0 / 399.0)
+    assert sum(interval["is_carrier"] for interval in transform["intervals"]) == 1
+    assert transform["intervals"] == [
+        {
+            "index": 0,
+            "source_upper_span_mm": pytest.approx(399.0),
+            "source_lower_span_mm": pytest.approx(399.0),
+            "output_upper_span_mm": pytest.approx(470.0),
+            "output_lower_span_mm": pytest.approx(470.0),
+            "downstream_shift_mm": pytest.approx(0.0),
+            "is_carrier": True,
+        }
+    ]
+    assert "scale_x" not in transform
     assert report["items"][0]["output"]["label"] == "p=q6-b-62"
     assert report["items"][0]["output"]["width_mm"] == pytest.approx(
         report["items"][0]["geometry"]["source_width_mm"]

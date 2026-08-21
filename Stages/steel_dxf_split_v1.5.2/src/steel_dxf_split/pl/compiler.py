@@ -22,7 +22,7 @@ from .longitudinal import analyze_longitudinal_outline
 from .source import discover_input_files, extract_metadata, load_source_contexts
 from .writer import write_pl_dxf
 
-REPORT_SCHEMA = "steel-dxf-split-pl-report/1"
+REPORT_SCHEMA = "steel-dxf-split-pl-report/2"
 REPORT_FILENAME = "pl_split_report.json"
 
 
@@ -109,14 +109,30 @@ def _success_payload(item: PLItemResult) -> dict[str, object]:
             "bom_mm": metrics.bom_length_mm,
             "raw_mm": metrics.raw_length_mm,
             "target_mm": metrics.target_length_mm,
+            "total_extension_mm": metrics.total_extension_mm,
         },
         "geometry": {
             "source_width_mm": developed.outline.width_mm,
             "source_anchor_x_mm": developed.outline.anchor_x_mm,
         },
         "transform": {
-            "scale_x": metrics.carrier_upper_scale_x,
-            "anchor_x_mm": metrics.anchor_x_mm,
+            "carrier_interval_indices": list(metrics.carrier_interval_indices),
+            "selection_reason": developed.longitudinal.selection_reason,
+            "total_extension_mm": metrics.total_extension_mm,
+            "carrier_upper_scale_x": metrics.carrier_upper_scale_x,
+            "carrier_lower_scale_x": metrics.carrier_lower_scale_x,
+            "intervals": [
+                {
+                    "index": interval.index,
+                    "source_upper_span_mm": interval.source_upper_span_mm,
+                    "source_lower_span_mm": interval.source_lower_span_mm,
+                    "output_upper_span_mm": interval.output_upper_span_mm,
+                    "output_lower_span_mm": interval.output_lower_span_mm,
+                    "downstream_shift_mm": interval.downstream_shift_mm,
+                    "is_carrier": interval.is_carrier,
+                }
+                for interval in metrics.intervals
+            ],
         },
         "output": {
             "path": str(item.output_path),
