@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import json
 import os
+from decimal import ROUND_CEILING, Decimal
 from pathlib import Path
 
 import ezdxf
 import pytest
+from ezdxf import bbox
 from steel_dxf_split.pl import split_pl
 
 EXPECTED_CARRIER_POSITION = {
@@ -78,6 +80,9 @@ def test_all_21_real_parts_share_the_carrier_unfolding_contract(tmp_path: Path) 
         lengths = item["lengths"]
         target = lengths["target_mm"]
         raw = max(lengths["projection_mm"], lengths["k_length_mm"], lengths["bom_mm"])
+        expected = Decimal(str(raw)).quantize(Decimal("0.1"), rounding=ROUND_CEILING)
+        assert lengths["raw_mm"] == raw
+        assert target == float(expected)
         assert target >= lengths["projection_mm"]
         assert target >= lengths["k_length_mm"]
         assert target >= lengths["bom_mm"]
@@ -113,6 +118,17 @@ def test_all_21_real_parts_share_the_carrier_unfolding_contract(tmp_path: Path) 
         assert output["label"] == f"p={part_number}"
         assert output["width_mm"] == pytest.approx(item["geometry"]["source_width_mm"], abs=0.001)
         saved = ezdxf.readfile(output["path"])
+        saved_plate = tuple(
+            entity for entity in saved.modelspace() if entity.dxf.layer == "PLATE_CUT"
+        )
+        saved_bounds = bbox.extents(saved_plate, fast=False)
+        assert saved_bounds.has_data
+        assert float(saved_bounds.extmax.x - saved_bounds.extmin.x) == pytest.approx(
+            target, abs=0.001
+        )
+        assert float(saved_bounds.extmax.y - saved_bounds.extmin.y) == pytest.approx(
+            item["geometry"]["source_width_mm"], abs=0.001
+        )
         labels = tuple(entity for entity in saved.modelspace() if entity.dxf.layer == "PART_LABEL")
         assert len(labels) == 1
         assert labels[0].dxf.text == f"p={part_number}"

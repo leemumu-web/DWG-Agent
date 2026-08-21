@@ -21,6 +21,7 @@ from steel_dxf_split.pl.development import calculate_target, ceil_tenth_mm, tran
 from steel_dxf_split.pl.geometry import flatten_entity, validate_closed_outline
 from steel_dxf_split.pl.longitudinal import (
     analyze_longitudinal_outline,
+    canonical_boundary_pieces,
     select_carrier_zone,
 )
 
@@ -671,7 +672,7 @@ def test_adjacent_turn_fragments_form_one_carrier_zone() -> None:
     assert select_carrier_zone(intervals) == ((1, 2), "paired_visible_turn")
 
 
-def test_unique_longest_paired_turn_group_wins_over_short_end_fragments() -> None:
+def test_disjoint_turn_groups_are_ambiguous_regardless_of_relative_length() -> None:
     intervals = (
         _interval(0, 0.0, 4.0, upper_dy=0.2, lower_dy=-0.2),
         _interval(1, 4.0, 34.0, upper_dy=30.0, lower_dy=-30.0),
@@ -681,7 +682,54 @@ def test_unique_longest_paired_turn_group_wins_over_short_end_fragments() -> Non
         _interval(5, 785.0, 1085.0),
     )
 
-    assert select_carrier_zone(intervals) == ((4,), "paired_visible_turn")
+    with pytest.raises(PLSplitError) as error:
+        select_carrier_zone(intervals)
+
+    assert error.value.code == "CARRIER_AMBIGUOUS"
+
+
+def test_rounded_terminal_profile_is_end_topology_before_carrier_selection() -> None:
+    entities, polygon = _paired_outline(
+        (
+            (0.0, 250.0),
+            (3.67, 250.19),
+            (34.82, 281.34),
+            (35.01, 285.0),
+            (484.0, 285.0),
+            (784.0, 225.0),
+            (1084.0, 225.0),
+        ),
+        (
+            (0.0, 0.0),
+            (3.67, -0.19),
+            (34.82, -31.34),
+            (35.01, -35.0),
+            (484.0, -35.0),
+            (784.0, 25.0),
+            (1084.0, 25.0),
+        ),
+    )
+
+    proof = analyze_longitudinal_outline(entities, polygon, thickness_mm=14.0)
+
+    assert proof.carrier_interval_indices == (4,)
+    assert tuple(interval.index for interval in proof.intervals) == tuple(range(6))
+    assert all(interval.is_end_feature for interval in proof.intervals[:3])
+    assert all(interval.is_turn_candidate for interval in proof.intervals[:3])
+
+
+def test_single_parallel_sloped_course_remains_a_body_interval() -> None:
+    entities, polygon = _paired_outline(
+        ((0.0, 100.0), (800.0, 200.0)),
+        ((0.0, 0.0), (800.0, 100.0)),
+    )
+
+    proof = analyze_longitudinal_outline(entities, polygon, thickness_mm=30.0)
+
+    assert proof.carrier_interval_indices == (0,)
+    assert tuple(interval.index for interval in proof.intervals) == (0,)
+    assert not proof.intervals[0].is_end_feature
+    assert proof.intervals[0].is_turn_candidate
 
 
 def test_longest_body_tie_within_one_tenth_fails_closed() -> None:
@@ -987,7 +1035,7 @@ def test_near_opposite_independent_ledges_project_above_station_limit() -> None:
     assert proof.selection_reason == "unique_longest_body"
 
 
-def test_sub_tolerance_opposite_chain_wobble_is_not_a_paired_turn() -> None:
+def test_terminal_opposite_chain_wobble_is_a_strict_turn_but_not_body() -> None:
     document = ezdxf.new()
     modelspace = document.modelspace()
     entities = tuple(
@@ -1012,6 +1060,8 @@ def test_sub_tolerance_opposite_chain_wobble_is_not_a_paired_turn() -> None:
     assert proof.carrier_interval_indices == (1,)
     assert proof.selection_reason == "paired_visible_turn"
     assert tuple(interval.index for interval in proof.intervals) == (0, 1, 2)
+    assert proof.intervals[2].is_turn_candidate
+    assert proof.intervals[2].is_end_feature
 
 
 def test_mixed_native_curve_is_segmented_into_longitudinal_and_end_chains() -> None:
@@ -1165,13 +1215,17 @@ def test_reentrant_end_chain_ledge_stays_out_of_longitudinal_courses() -> None:
     assert tuple(interval.index for interval in proof.intervals) == (0, 1, 2, 3, 4)
 
 
-def test_asymmetric_pointed_end_offsets_project_to_independent_stations() -> None:
+def test_shared_tip_topology_proves_pointed_end_stations_are_independent() -> None:
     entities, polygon = _line_outline(
         (
             (0.0, 175.0),
             (170.0, 300.0),
-            (1300.0, 300.0),
-            (1300.0, 0.0),
+            (600.0, 300.0),
+            (900.0, 260.0),
+            (1300.0, 260.0),
+            (1300.0, 40.0),
+            (900.0, 40.0),
+            (600.0, 0.0),
             (30.0, 0.0),
         )
     )
@@ -1186,10 +1240,12 @@ def test_asymmetric_pointed_end_offsets_project_to_independent_stations() -> Non
         (0.0, 0.0),
         (30.0, 30.0),
         (170.0, 170.0),
+        (600.0, 600.0),
+        (900.0, 900.0),
         (1300.0, 1300.0),
     )
-    assert proof.carrier_interval_indices == (2,)
-    assert proof.selection_reason == "unique_longest_body"
+    assert proof.carrier_interval_indices == (3,)
+    assert proof.selection_reason == "paired_visible_turn"
 
 
 def test_overlapping_collinear_boundary_fragments_are_canonicalized(
@@ -1214,6 +1270,11 @@ def test_overlapping_collinear_boundary_fragments_are_canonicalized(
     assert proof.carrier_interval_indices == (0,)
     assert proof.selection_reason == "unique_longest_body"
     assert tuple(interval.index for interval in proof.intervals) == (0,)
+    assert set(proof.intervals[0].upper_entity_indices) == {0, 1}
+    assert set(proof.intervals[0].lower_entity_indices) == {3}
+    assert set(proof.intervals[0].source_handles) == {
+        str(entities[index].dxf.handle) for index in (0, 1, 3)
+    }
 
     transformed, metrics = transform_outline(
         entities,
@@ -1251,7 +1312,14 @@ def test_overlapping_collinear_boundary_fragments_are_canonicalized(
         transformed_entities=transformed,
         metrics=metrics,
     )
-    write_pl_dxf(developed, tmp_path / "overlap.dxf")
+    output = tmp_path / "overlap.dxf"
+    write_pl_dxf(developed, output)
+    saved = ezdxf.readfile(output)
+    saved_types = tuple(
+        entity.dxftype() for entity in saved.modelspace() if entity.dxf.layer == "PLATE_CUT"
+    )
+    assert saved_types
+    assert set(saved_types) == {"LINE"}
 
 
 def test_sub_tolerance_line_wobble_does_not_create_turn_stations() -> None:
@@ -1277,6 +1345,35 @@ def test_sub_tolerance_line_wobble_does_not_create_turn_stations() -> None:
     assert proof.carrier_interval_indices == (0,)
     assert proof.selection_reason == "unique_longest_body"
     assert tuple(interval.index for interval in proof.intervals) == (0,)
+
+
+def test_competing_overlap_cycles_select_the_proven_native_boundary() -> None:
+    document = ezdxf.new()
+    modelspace = document.modelspace()
+    entities = tuple(
+        modelspace.add_line(start, end, dxfattribs={"layer": "Part"})
+        for start, end in (
+            ((0.0, 100.0), (600.0, 100.0)),
+            ((600.0, 100.0), (800.0, 100.05)),
+            ((800.0, 100.05), (800.0, 0.0)),
+            ((800.0, 0.0), (0.0, 0.0)),
+            ((0.0, 0.0), (0.0, 100.0)),
+            ((600.0, 100.0), (400.0, 100.05)),
+            ((400.0, 100.05), (800.0, 100.05)),
+        )
+    )
+    material = validate_closed_outline(entities, tolerance_mm=0.1)
+
+    pieces = canonical_boundary_pieces(entities)
+    proved = validate_closed_outline(
+        tuple(piece.entity for piece in pieces),
+        tolerance_mm=1e-7,
+    )
+
+    assert proved.symmetric_difference(material).area <= 0.000001
+    assert {piece.source_index for piece in pieces} == {0, 2, 3, 4, 5, 6}
+    assert all(piece.entity.dxftype() == "LINE" for piece in pieces)
+    assert all(piece.is_noded_piece for piece in pieces)
 
 
 def test_opposite_short_end_offsets_keep_a_trailing_station_band() -> None:

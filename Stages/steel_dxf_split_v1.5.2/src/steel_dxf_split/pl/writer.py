@@ -20,7 +20,6 @@ from steel_dxf_split.part_mark_layout import (
 
 from .contracts import DevelopedPlate, PLSplitError, PLWriteResult
 from .geometry import flatten_entity, validate_closed_outline
-from .longitudinal import canonical_boundary_entities
 
 _WINDOWS_CJK_DXF_FONT = "simsun.ttc"
 _DIMENSION_TOLERANCE_MM = 0.001
@@ -214,7 +213,7 @@ def _source_station_y(
     *,
     upper: bool,
 ) -> float:
-    source_entities = canonical_boundary_entities(developed.outline.outer_entities)
+    source_entities = developed.outline.outer_entities
     intervals = developed.longitudinal.intervals
     adjacent = (
         (intervals[0],)

@@ -20,7 +20,7 @@ from .contracts import (
     PLSplitError,
 )
 from .geometry import validate_closed_outline
-from .longitudinal import canonical_boundary_entities
+from .longitudinal import canonical_boundary_pieces
 
 K_FACTOR = 0.5
 _TENTH_MM = Decimal("0.1")
@@ -498,7 +498,7 @@ def transform_outline(
     bom_length_mm: float,
     anchor_x_mm: float,
 ) -> tuple[tuple[DXFEntity, ...], DevelopmentMetrics]:
-    source = canonical_boundary_entities(tuple(entities))
+    source = tuple(entities)
     if not source:
         raise PLSplitError("EMPTY_OUTLINE", "主视图外轮廓不能为空。")
     anchor = float(anchor_x_mm)
@@ -517,10 +517,14 @@ def transform_outline(
     upper_scale = (upper_span + target.total_extension_mm) / upper_span
     lower_scale = (lower_span + target.total_extension_mm) / lower_span
     station_values = _source_station_values(longitudinal, len(source))
+    boundary_pieces = canonical_boundary_pieces(source)
     pieces = tuple(
-        _NativePiece(source_index, piece)
-        for source_index, entity in enumerate(source)
-        for piece in _split_native_entity(entity, station_values[source_index])
+        _NativePiece(boundary_piece.source_index, piece)
+        for boundary_piece in boundary_pieces
+        for piece in _split_native_entity(
+            boundary_piece.entity,
+            station_values[boundary_piece.source_index],
+        )
     )
     transformed = _transform_groups(
         pieces,

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import cache
 from itertools import pairwise
 from math import atan2, cos, degrees, dist, isclose, isfinite, sin
@@ -32,20 +32,30 @@ from .geometry import (
 )
 
 _SIDE_TOLERANCE_MM = TOPOLOGY_TOLERANCE_MM + FLATTEN_SAGITTA_MM
-_TURN_TOLERANCE_MM = TOPOLOGY_TOLERANCE_MM
+_TURN_TOLERANCE_MM = 0.001
 _FLOAT_EPSILON_MM = 1e-9
+_NATIVE_BOUNDARY_TOLERANCE_MM = 1e-7
 _COURSE_CONTINUITY_EPSILON = 1e-9
 
 
 @dataclass(frozen=True, slots=True)
 class _RingEdge:
     index: int
+    source_index: int
     entity: DXFEntity
     points: tuple[tuple[float, float], ...]
     start_node: int
     end_node: int
     source_handle: str
-    topology_reconstructed: bool
+    is_noded_piece: bool
+
+
+@dataclass(frozen=True, slots=True)
+class BoundaryPiece:
+    source_index: int
+    source_handle: str
+    entity: DXFEntity
+    is_noded_piece: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +93,7 @@ class _SideEvent:
     source_entity_indices: tuple[int, ...]
     projection_eligible: bool
     correspondence_ids: frozenset[int]
+    direct_correspondence_ids: frozenset[int]
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,7 +128,10 @@ def _source_handle(entity: DXFEntity) -> str:
     return str(entity.dxf.get("handle") or "virtual")
 
 
-def canonical_boundary_indices(entities: tuple[DXFEntity, ...]) -> tuple[int, ...]:
+def canonical_boundary_indices(
+    entities: tuple[DXFEntity, ...],
+    coverage_tolerance_mm: float = _FLOAT_EPSILON_MM,
+) -> tuple[int, ...]:
     linework = tuple(
         LineString(flatten_entity(entity, FLATTEN_SAGITTA_MM)) for entity in entities
     )
@@ -125,7 +139,7 @@ def canonical_boundary_indices(entities: tuple[DXFEntity, ...]) -> tuple[int, ..
     for index in sorted(retained, key=lambda item: (linework[item].length, item)):
         others = tuple(linework[item] for item in retained if item != index)
         if others and unary_union(others).buffer(
-            FLATTEN_SAGITTA_MM,
+            coverage_tolerance_mm,
             cap_style="square",
             join_style="mitre",
         ).covers(linework[index]):
@@ -133,7 +147,10 @@ def canonical_boundary_indices(entities: tuple[DXFEntity, ...]) -> tuple[int, ..
     return tuple(sorted(retained))
 
 
-def _has_degree_two_endpoints(entities: tuple[DXFEntity, ...]) -> bool:
+def _has_degree_two_endpoints(
+    entities: tuple[DXFEntity, ...],
+    tolerance_mm: float = TOPOLOGY_TOLERANCE_MM,
+) -> bool:
     endpoints = [
         point
         for entity in entities
@@ -145,7 +162,7 @@ def _has_degree_two_endpoints(entities: tuple[DXFEntity, ...]) -> bool:
     groups = _UnionFind(len(endpoints))
     for index, point in enumerate(endpoints):
         for previous in range(index):
-            if dist(point, endpoints[previous]) <= TOPOLOGY_TOLERANCE_MM:
+            if dist(point, endpoints[previous]) <= tolerance_mm:
                 groups.join(index, previous)
     degrees: dict[int, int] = {}
     for index in range(len(endpoints)):
@@ -154,14 +171,82 @@ def _has_degree_two_endpoints(entities: tuple[DXFEntity, ...]) -> bool:
     return bool(degrees) and all(degree == 2 for degree in degrees.values())
 
 
-def canonical_boundary_entities(
-    entities: tuple[DXFEntity, ...],
-) -> tuple[DXFEntity, ...]:
-    selected = tuple(entities[index] for index in canonical_boundary_indices(entities))
-    if _has_degree_two_endpoints(selected) or any(
-        entity.dxftype() != "LINE" for entity in selected
+def _line_parameter(line: Line, point: tuple[float, float]) -> float | None:
+    start = line.dxf.start
+    end = line.dxf.end
+    delta_x = float(end.x - start.x)
+    delta_y = float(end.y - start.y)
+    squared_length = delta_x * delta_x + delta_y * delta_y
+    if squared_length <= _FLOAT_EPSILON_MM:
+        return None
+    parameter = (
+        (point[0] - float(start.x)) * delta_x + (point[1] - float(start.y)) * delta_y
+    ) / squared_length
+    projected = (
+        float(start.x) + parameter * delta_x,
+        float(start.y) + parameter * delta_y,
+    )
+    if (
+        parameter < -_FLOAT_EPSILON_MM
+        or parameter > 1.0 + _FLOAT_EPSILON_MM
+        or dist(projected, point) > TOPOLOGY_TOLERANCE_MM
     ):
-        return selected
+        return None
+    return min(1.0, max(0.0, parameter))
+
+
+def _intersection_points(geometry: BaseGeometry) -> tuple[tuple[float, float], ...]:
+    if geometry.is_empty:
+        return ()
+    if isinstance(geometry, Point):
+        return ((float(geometry.x), float(geometry.y)),)
+    if isinstance(geometry, LineString):
+        coordinates = tuple(geometry.coords)
+        if not coordinates:
+            return ()
+        return (
+            (float(coordinates[0][0]), float(coordinates[0][1])),
+            (float(coordinates[-1][0]), float(coordinates[-1][1])),
+        )
+    if isinstance(geometry, (GeometryCollection, MultiLineString, MultiPoint)):
+        return tuple(
+            point for part in geometry.geoms for point in _intersection_points(part)
+        )
+    return ()
+
+
+def _same_piece(
+    first: tuple[tuple[float, float], tuple[float, float]],
+    second: tuple[tuple[float, float], tuple[float, float]],
+) -> bool:
+    return (
+        dist(first[0], second[0]) <= _NATIVE_BOUNDARY_TOLERANCE_MM
+        and dist(first[1], second[1]) <= _NATIVE_BOUNDARY_TOLERANCE_MM
+    ) or (
+        dist(first[0], second[1]) <= _NATIVE_BOUNDARY_TOLERANCE_MM
+        and dist(first[1], second[0]) <= _NATIVE_BOUNDARY_TOLERANCE_MM
+    )
+
+
+def canonical_boundary_pieces(
+    entities: tuple[DXFEntity, ...],
+) -> tuple[BoundaryPiece, ...]:
+    selected_indices = canonical_boundary_indices(
+        entities,
+        FLATTEN_SAGITTA_MM
+        if any(entity.dxftype() != "LINE" for entity in entities)
+        else _FLOAT_EPSILON_MM,
+    )
+    selected = tuple(entities[index] for index in selected_indices)
+    if _has_degree_two_endpoints(selected):
+        return tuple(
+            BoundaryPiece(
+                index, _source_handle(entities[index]), entities[index], False
+            )
+            for index in selected_indices
+        )
+    if any(entity.dxftype() != "LINE" for entity in selected):
+        raise _topology_error("含原生曲线的主视图外边界不是二度闭合环。")
     polygon = validate_closed_outline(
         entities,
         tolerance_mm=TOPOLOGY_TOLERANCE_MM,
@@ -175,21 +260,98 @@ def canonical_boundary_entities(
         join_style="mitre",
     )
     if any(not boundary_zone.covers(line) for line in linework):
-        return selected
-    result: list[DXFEntity] = []
-    coordinates = tuple(polygon.exterior.coords)
-    for start, end in pairwise(coordinates):
-        if dist(start, end) <= _FLOAT_EPSILON_MM:
-            continue
-        segment = LineString((start, end))
-        source_index = min(
-            range(len(selected)),
-            key=lambda index: (linework[index].distance(segment), index),
+        raise _topology_error("主视图重叠线段没有全部落在材料外边界。")
+    native_boundary_zone = polygon.boundary.buffer(
+        _NATIVE_BOUNDARY_TOLERANCE_MM,
+        cap_style="square",
+        join_style="mitre",
+    )
+
+    split_points: list[set[tuple[float, float]]] = [set() for _ in selected]
+    for first_index, first in enumerate(linework):
+        split_points[first_index].update(
+            (tuple(first.coords[0]), tuple(first.coords[-1]))
         )
-        clone = cast(Line, selected[source_index].copy())
-        clone.dxf.start = (start[0], start[1], 0.0)
-        clone.dxf.end = (end[0], end[1], 0.0)
-        result.append(clone)
+        for second_index, second in enumerate(linework):
+            if first_index == second_index:
+                continue
+            split_points[first_index].update(
+                _intersection_points(first.intersection(second))
+            )
+            split_points[first_index].update(
+                (tuple(second.coords[0]), tuple(second.coords[-1]))
+            )
+
+    candidates: list[
+        tuple[
+            int,
+            DXFEntity,
+            tuple[tuple[float, float], tuple[float, float]],
+        ]
+    ] = []
+    for selected_index, (source_index, entity) in enumerate(
+        zip(selected_indices, selected, strict=True)
+    ):
+        line = cast(Line, entity)
+        start = line.dxf.start
+        end = line.dxf.end
+        delta = end - start
+        parameters = sorted(
+            {
+                parameter
+                for point in split_points[selected_index]
+                if (parameter := _line_parameter(line, point)) is not None
+            }
+            | {0.0, 1.0}
+        )
+        for first, second in pairwise(parameters):
+            first_point = start + delta * first
+            second_point = start + delta * second
+            endpoints = (
+                (float(first_point.x), float(first_point.y)),
+                (float(second_point.x), float(second_point.y)),
+            )
+            segment = LineString(endpoints)
+            if segment.length <= _FLOAT_EPSILON_MM or not boundary_zone.covers(segment):
+                continue
+            clone = cast(Line, line.copy())
+            clone.dxf.start = first_point
+            clone.dxf.end = second_point
+            candidates.append((source_index, clone, endpoints))
+
+    result: list[BoundaryPiece] = []
+    endpoints_by_piece: list[tuple[tuple[float, float], tuple[float, float]]] = []
+    for source_index, entity, endpoints in candidates:
+        if not native_boundary_zone.covers(LineString(endpoints)):
+            continue
+        if any(_same_piece(endpoints, retained) for retained in endpoints_by_piece):
+            continue
+        result.append(
+            BoundaryPiece(
+                source_index=source_index,
+                source_handle=_source_handle(entities[source_index]),
+                entity=entity,
+                is_noded_piece=True,
+            )
+        )
+        endpoints_by_piece.append(endpoints)
+    result_entities = tuple(piece.entity for piece in result)
+    if not _has_degree_two_endpoints(
+        result_entities,
+        _NATIVE_BOUNDARY_TOLERANCE_MM,
+    ):
+        raise _topology_error("主视图重叠线段不能精确节点化为二度闭合环。")
+    proved = validate_closed_outline(
+        result_entities,
+        tolerance_mm=_NATIVE_BOUNDARY_TOLERANCE_MM,
+    )
+    if (
+        not proved.is_valid
+        or len(proved.interiors)
+        or proved.symmetric_difference(polygon).area
+        > _NATIVE_BOUNDARY_TOLERANCE_MM * max(polygon.length, 1.0)
+    ):
+        raise _topology_error("精确节点化边界与主视图材料区域不一致。")
     return tuple(result)
 
 
@@ -198,23 +360,43 @@ def _ring_edges(
 ) -> tuple[tuple[_RingEdge, ...], dict[int, tuple[float, float]]]:
     if not entities:
         raise _topology_error("主视图没有可分析的外边界实体。")
-    cloned: list[tuple[int, DXFEntity, tuple[tuple[float, float], ...], str]] = []
+    cloned: list[
+        tuple[
+            int,
+            int,
+            DXFEntity,
+            tuple[tuple[float, float], ...],
+            str,
+            bool,
+        ]
+    ] = []
     endpoints: list[tuple[int, int, tuple[float, float]]] = []
-    boundary_entities = canonical_boundary_entities(entities)
-    topology_reconstructed = any(
-        all(entity is not source for source in entities) for entity in boundary_entities
-    )
-    for index, entity in enumerate(boundary_entities):
-        clone = entity.copy()
+    boundary_pieces = canonical_boundary_pieces(entities)
+    for index, piece in enumerate(boundary_pieces):
+        clone = piece.entity.copy()
         points = flatten_entity(clone, FLATTEN_SAGITTA_MM)
-        cloned.append((index, clone, points, _source_handle(entity)))
+        cloned.append(
+            (
+                index,
+                piece.source_index,
+                clone,
+                points,
+                piece.source_handle,
+                piece.is_noded_piece,
+            )
+        )
         endpoints.append((index, 0, points[0]))
         endpoints.append((index, 1, points[-1]))
 
+    endpoint_tolerance = (
+        _NATIVE_BOUNDARY_TOLERANCE_MM
+        if any(piece.is_noded_piece for piece in boundary_pieces)
+        else TOPOLOGY_TOLERANCE_MM
+    )
     groups = _UnionFind(len(endpoints))
     for index, (_, _, point) in enumerate(endpoints):
         for previous in range(index):
-            if dist(point, endpoints[previous][2]) <= TOPOLOGY_TOLERANCE_MM:
+            if dist(point, endpoints[previous][2]) <= endpoint_tolerance:
                 groups.join(index, previous)
     members: dict[int, list[tuple[float, float]]] = {}
     for index, (_, _, point) in enumerate(endpoints):
@@ -234,14 +416,15 @@ def _ring_edges(
     edges = tuple(
         _RingEdge(
             index=index,
+            source_index=source_index,
             entity=clone,
             points=points,
             start_node=node_by_endpoint[index, 0],
             end_node=node_by_endpoint[index, 1],
             source_handle=handle,
-            topology_reconstructed=topology_reconstructed,
+            is_noded_piece=is_noded_piece,
         )
-        for index, clone, points, handle in cloned
+        for index, source_index, clone, points, handle, is_noded_piece in cloned
     )
     return edges, coordinates
 
@@ -295,12 +478,13 @@ def _ordered_ring(entities: tuple[DXFEntity, ...]) -> tuple[_RingEdge, ...]:
         else:
             oriented = _RingEdge(
                 index=edge.index,
+                source_index=edge.source_index,
                 entity=edge.entity,
                 points=tuple(reversed(edge.points)),
                 start_node=edge.end_node,
                 end_node=edge.start_node,
                 source_handle=edge.source_handle,
-                topology_reconstructed=edge.topology_reconstructed,
+                is_noded_piece=edge.is_noded_piece,
             )
             next_node = edge.start_node
         ordered.append(oriented)
@@ -503,8 +687,8 @@ def _same_geometric_course(
     if dist(first.points[-1], second.points[0]) > TOPOLOGY_TOLERANCE_MM:
         return False
     if (
-        first.edge.topology_reconstructed
-        and second.edge.topology_reconstructed
+        first.edge.is_noded_piece
+        and second.edge.is_noded_piece
         and first.edge.entity.dxftype() == second.edge.entity.dxftype() == "LINE"
     ):
         first_chord = (
@@ -555,7 +739,7 @@ def _side_courses(
 ) -> tuple[
     tuple[_SideCourse, ...],
     tuple[_SideCourse, ...],
-    frozenset[tuple[int, str, int]],
+    frozenset[tuple[int, str, int, bool]],
 ]:
     by_side: dict[str, list[_SideFragment]] = {"upper": [], "lower": []}
     traversal: list[tuple[str, _SideFragment]] = []
@@ -569,18 +753,24 @@ def _side_courses(
     }
     if not ordered["upper"] or not ordered["lower"]:
         raise _topology_error("主视图没有形成可配对的上下纵向边界。")
-    end_transition_links: set[tuple[int, str, int]] = set()
+    end_transition_links: set[tuple[int, str, int, bool]] = set()
     cyclic_traversal = (*traversal, traversal[0])
     for transition_id, ((first_side, first), (second_side, second)) in enumerate(
         pairwise(cyclic_traversal)
     ):
         if first_side == second_side:
             continue
+        direct_junction = bool(
+            {first.edge.start_node, first.edge.end_node}
+            & {second.edge.start_node, second.edge.end_node}
+        )
         first_opposite_end = "left" if first.traverses_left_to_right else "right"
         second_opposite_end = "right" if second.traverses_left_to_right else "left"
-        end_transition_links.add((first.path_index, first_opposite_end, transition_id))
         end_transition_links.add(
-            (second.path_index, second_opposite_end, transition_id)
+            (first.path_index, first_opposite_end, transition_id, direct_junction)
+        )
+        end_transition_links.add(
+            (second.path_index, second_opposite_end, transition_id, direct_junction)
         )
     return (
         _coalesce_fragments(ordered["upper"]),
@@ -593,12 +783,16 @@ def _side_events(
     courses: tuple[_SideCourse, ...],
     polygon: Polygon,
     thickness_mm: float,
-    end_transition_links: frozenset[tuple[int, str, int]],
+    end_transition_links: frozenset[tuple[int, str, int, bool]],
 ) -> tuple[_SideEvent, ...]:
     links_by_boundary: dict[tuple[int, str], set[int]] = {}
-    for path_index, boundary, transition_id in end_transition_links:
-        links_by_boundary.setdefault((path_index, boundary), set()).add(transition_id)
-    values: list[tuple[float, tuple[int, ...], frozenset[int]]] = []
+    direct_links_by_boundary: dict[tuple[int, str], set[int]] = {}
+    for path_index, boundary, transition_id, direct_junction in end_transition_links:
+        key = (path_index, boundary)
+        links_by_boundary.setdefault(key, set()).add(transition_id)
+        if direct_junction:
+            direct_links_by_boundary.setdefault(key, set()).add(transition_id)
+    values: list[tuple[float, tuple[int, ...], frozenset[int], frozenset[int]]] = []
     for course in courses:
         first = course.fragments[0]
         last = course.fragments[-1]
@@ -616,37 +810,59 @@ def _side_events(
                 (fragment.path_index, "right"), ()
             )
         )
+        left_direct_links = frozenset(
+            transition_id
+            for fragment in course.fragments
+            for transition_id in direct_links_by_boundary.get(
+                (fragment.path_index, "left"), ()
+            )
+        )
+        right_direct_links = frozenset(
+            transition_id
+            for fragment in course.fragments
+            for transition_id in direct_links_by_boundary.get(
+                (fragment.path_index, "right"), ()
+            )
+        )
         values.append(
             (
                 course.left_x,
-                (first.edge.index,),
+                (first.edge.source_index,),
                 left_links,
+                left_direct_links,
             )
         )
         values.append(
             (
                 course.right_x,
-                (last.edge.index,),
+                (last.edge.source_index,),
                 right_links,
+                right_direct_links,
             )
         )
         for previous, following in pairwise(course.fragments):
             x_mm = (previous.right_x + following.left_x) / 2.0
             near_end = min(x_mm - polygon.bounds[0], polygon.bounds[2] - x_mm)
             if (
-                not previous.edge.topology_reconstructed
-                and not following.edge.topology_reconstructed
+                not previous.edge.is_noded_piece
+                and not following.edge.is_noded_piece
                 and near_end <= thickness_mm + 0.1
             ):
                 values.append(
                     (
                         x_mm,
-                        (previous.edge.index, following.edge.index),
+                        (
+                            previous.edge.source_index,
+                            following.edge.source_index,
+                        ),
+                        frozenset(),
                         frozenset(),
                     )
                 )
     values.sort(key=lambda item: (item[0], item[1]))
-    groups: list[list[tuple[float, tuple[int, ...], frozenset[int]]]] = []
+    groups: list[
+        list[tuple[float, tuple[int, ...], frozenset[int], frozenset[int]]]
+    ] = []
     for value in values:
         if not groups or value[0] - groups[-1][-1][0] > TOPOLOGY_TOLERANCE_MM:
             groups.append([value])
@@ -658,11 +874,18 @@ def _side_events(
         x_mm = sum(value[0] for value in group) / len(group)
         sources = tuple(
             sorted(
-                {source for _, source_indices, _ in group for source in source_indices}
+                {
+                    source
+                    for _, source_indices, _, _ in group
+                    for source in source_indices
+                }
             )
         )
         correspondence_ids = frozenset(
             transition_id for value in group for transition_id in value[2]
+        )
+        direct_correspondence_ids = frozenset(
+            transition_id for value in group for transition_id in value[3]
         )
         crosses_reentrant_end = any(
             len(_vertical_sections(polygon, x_mm + offset)) > 1
@@ -680,9 +903,57 @@ def _side_events(
                     and (near_end or crosses_reentrant_end or bool(correspondence_ids))
                 ),
                 correspondence_ids=correspondence_ids,
+                direct_correspondence_ids=direct_correspondence_ids,
             )
         )
     return tuple(events)
+
+
+def _prove_independent_direct_end_events(
+    upper: tuple[_SideEvent, ...],
+    lower: tuple[_SideEvent, ...],
+    min_x: float,
+    max_x: float,
+    station_limit_mm: float,
+) -> tuple[tuple[_SideEvent, ...], tuple[_SideEvent, ...]]:
+    midpoint = (min_x + max_x) / 2.0
+    independent_upper: set[int] = set()
+    independent_lower: set[int] = set()
+    for upper_index, upper_event in enumerate(upper[1:-1], start=1):
+        for lower_index, lower_event in enumerate(lower[1:-1], start=1):
+            shared_direct = (
+                upper_event.direct_correspondence_ids
+                & lower_event.direct_correspondence_ids
+            )
+            if not shared_direct:
+                continue
+            same_end = (upper_event.x_mm <= midpoint) == (lower_event.x_mm <= midpoint)
+            if same_end and not _station_width_within_limit(
+                abs(upper_event.x_mm - lower_event.x_mm),
+                station_limit_mm,
+            ):
+                independent_upper.add(upper_index)
+                independent_lower.add(lower_index)
+    if not independent_upper:
+        return upper, lower
+
+    def independent(event: _SideEvent) -> _SideEvent:
+        return replace(
+            event,
+            projection_eligible=True,
+            correspondence_ids=frozenset(),
+        )
+
+    return (
+        tuple(
+            independent(event) if index in independent_upper else event
+            for index, event in enumerate(upper)
+        ),
+        tuple(
+            independent(event) if index in independent_lower else event
+            for index, event in enumerate(lower)
+        ),
+    )
 
 
 def _required_event_partners(
@@ -720,51 +991,6 @@ def _station_width_within_limit(width_mm: float, limit_mm: float) -> bool:
         limit_mm,
         rel_tol=0.0,
         abs_tol=_FLOAT_EPSILON_MM,
-    )
-
-
-def _project_single_end_offset(
-    upper: tuple[_SideEvent, ...],
-    lower: tuple[_SideEvent, ...],
-    min_x: float,
-    max_x: float,
-    station_limit_mm: float,
-) -> tuple[tuple[_SideEvent, ...], tuple[_SideEvent, ...]]:
-    if len(upper) != 3 or len(lower) != 3:
-        return upper, lower
-    upper_event = upper[1]
-    lower_event = lower[1]
-    if not upper_event.correspondence_ids & lower_event.correspondence_ids:
-        return upper, lower
-    if _station_width_within_limit(
-        abs(upper_event.x_mm - lower_event.x_mm),
-        station_limit_mm,
-    ):
-        return upper, lower
-    midpoint = (min_x + max_x) / 2.0
-    upper_at_left = upper_event.x_mm <= midpoint
-    lower_at_left = lower_event.x_mm <= midpoint
-    if upper_at_left != lower_at_left:
-        return upper, lower
-    end_distance = (
-        min(upper_event.x_mm, lower_event.x_mm) - min_x
-        if upper_at_left
-        else max_x - max(upper_event.x_mm, lower_event.x_mm)
-    )
-    if end_distance > station_limit_mm:
-        return upper, lower
-
-    def independent(event: _SideEvent) -> _SideEvent:
-        return _SideEvent(
-            x_mm=event.x_mm,
-            source_entity_indices=event.source_entity_indices,
-            projection_eligible=True,
-            correspondence_ids=frozenset(),
-        )
-
-    return (
-        (upper[0], independent(upper_event), upper[2]),
-        (lower[0], independent(lower_event), lower[2]),
     )
 
 
@@ -974,7 +1200,7 @@ def _edge_indices_at_x(
     x_mm: float,
 ) -> tuple[int, ...]:
     return tuple(
-        edge.index
+        edge.source_index
         for edge in ring
         if min(point[0] for point in edge.points) - TOPOLOGY_TOLERANCE_MM
         <= x_mm
@@ -1023,7 +1249,7 @@ def _station_bands(
     polygon: Polygon,
     upper: tuple[_SideCourse, ...],
     lower: tuple[_SideCourse, ...],
-    end_transition_links: frozenset[tuple[int, str, int]],
+    end_transition_links: frozenset[tuple[int, str, int, bool]],
     thickness_mm: float,
 ) -> tuple[StationBand, ...]:
     limit = thickness_mm + 0.1
@@ -1038,7 +1264,7 @@ def _station_bands(
         limit,
     )
     if opposite_end_bands is None:
-        upper_events, lower_events = _project_single_end_offset(
+        upper_events, lower_events = _prove_independent_direct_end_events(
             upper_events,
             lower_events,
             min_x,
@@ -1107,7 +1333,7 @@ def _piece_indices_between(
     return tuple(
         sorted(
             {
-                fragment.edge.index
+                fragment.edge.source_index
                 for course in courses
                 for fragment in course.fragments
                 if min(fragment.right_x, right) - max(fragment.left_x, left) > 1e-9
@@ -1124,7 +1350,7 @@ def _boundary_sources(
 ) -> tuple[int, ...]:
     point = Point(x_mm, _polygon_side_y(polygon, x_mm, side))
     return tuple(
-        edge.index
+        edge.source_index
         for edge in ring
         if LineString(edge.points).distance(point) <= _SIDE_TOLERANCE_MM
     )
@@ -1138,8 +1364,10 @@ def _intervals(
     stations: tuple[StationBand, ...],
     thickness_mm: float,
 ) -> tuple[LongitudinalIntervalEvidence, ...]:
-    handles = {edge.index: edge.source_handle for edge in ring}
+    handles = {edge.source_index: edge.source_handle for edge in ring}
+    full_width = polygon.bounds[3] - polygon.bounds[1]
     intervals: list[LongitudinalIntervalEvidence] = []
+    contracted_profiles: list[bool] = []
     for index, (left, right) in enumerate(pairwise(stations)):
         upper_span = right.upper_x_mm - left.upper_x_mm
         lower_span = right.lower_x_mm - left.lower_x_mm
@@ -1177,6 +1405,20 @@ def _intervals(
         lower_right_y = _polygon_side_y(polygon, right.lower_x_mm, "lower")
         upper_delta_y = upper_right_y - upper_left_y
         lower_delta_y = lower_right_y - lower_left_y
+        left_profile_width = upper_left_y - lower_left_y
+        right_profile_width = upper_right_y - lower_right_y
+        contracted_profiles.append(
+            left_profile_width < full_width - TOPOLOGY_TOLERANCE_MM
+            and right_profile_width < full_width - TOPOLOGY_TOLERANCE_MM
+            and (
+                abs(right_profile_width - left_profile_width) > TOPOLOGY_TOLERANCE_MM
+                or (
+                    min(abs(upper_delta_y), abs(lower_delta_y))
+                    <= TOPOLOGY_TOLERANCE_MM
+                    < max(abs(upper_delta_y), abs(lower_delta_y))
+                )
+            )
+        )
 
         overlap_left = max(left.upper_x_mm, left.lower_x_mm)
         overlap_right = min(right.upper_x_mm, right.lower_x_mm)
@@ -1233,7 +1475,34 @@ def _intervals(
                 source_handles=tuple(handles[source] for source in source_indices),
             )
         )
-    return tuple(intervals)
+    terminal_end_indices: set[int] = set()
+    if len(intervals) > 1:
+        for indices in (range(len(intervals)), range(len(intervals) - 1, -1, -1)):
+            connected_to_end = False
+            for index in indices:
+                interval = intervals[index]
+                terminal_short = (
+                    connected_to_end
+                    and min(
+                        interval.upper_span_mm,
+                        interval.lower_span_mm,
+                    )
+                    <= thickness_mm + 0.1
+                )
+                if not (
+                    interval.is_end_feature
+                    or contracted_profiles[index]
+                    or terminal_short
+                ):
+                    break
+                terminal_end_indices.add(index)
+                connected_to_end = True
+    return tuple(
+        replace(interval, is_end_feature=True)
+        if interval.index in terminal_end_indices
+        else interval
+        for interval in intervals
+    )
 
 
 def _consecutive_groups(indices: tuple[int, ...]) -> tuple[tuple[int, ...], ...]:
@@ -1255,31 +1524,12 @@ def select_carrier_zone(
     turns = tuple(interval.index for interval in body if interval.is_turn_candidate)
     if turns:
         groups = _consecutive_groups(turns)
-        by_index = {interval.index: interval for interval in body}
-        ranked_groups = sorted(
-            groups,
-            key=lambda group: (
-                -sum(
-                    min(by_index[index].upper_span_mm, by_index[index].lower_span_mm)
-                    for index in group
-                ),
-                group,
-            ),
-        )
-        if len(ranked_groups) > 1:
-            extents = tuple(
-                sum(
-                    min(by_index[index].upper_span_mm, by_index[index].lower_span_mm)
-                    for index in group
-                )
-                for group in ranked_groups[:2]
+        if len(groups) != 1:
+            raise PLSplitError(
+                "CARRIER_AMBIGUOUS",
+                "主视图存在多个不相邻转折承载候选。",
             )
-            if extents[0] - extents[1] <= 0.1:
-                raise PLSplitError(
-                    "CARRIER_AMBIGUOUS",
-                    "主视图存在多个不相邻转折承载候选。",
-                )
-        return ranked_groups[0], "paired_visible_turn"
+        return groups[0], "paired_visible_turn"
     ranked = sorted(
         body,
         key=lambda interval: (
