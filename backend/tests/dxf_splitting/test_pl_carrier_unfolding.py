@@ -7,10 +7,11 @@ from ezdxf.entities import DXFEntity
 from shapely.geometry import Polygon
 from steel_dxf_split.pl.contracts import (
     LongitudinalIntervalEvidence,
+    LongitudinalProof,
     PLSplitError,
     StationBand,
 )
-from steel_dxf_split.pl.development import calculate_target, ceil_tenth_mm
+from steel_dxf_split.pl.development import calculate_target, ceil_tenth_mm, transform_outline
 from steel_dxf_split.pl.geometry import flatten_entity, validate_closed_outline
 from steel_dxf_split.pl.longitudinal import (
     analyze_longitudinal_outline,
@@ -181,6 +182,92 @@ def _smooth_curve_course_outline(
     return entities, validate_closed_outline(entities, tolerance_mm=0.1)
 
 
+def _q7_like_outline() -> tuple[tuple[DXFEntity, ...], Polygon]:
+    return _paired_outline(
+        (
+            (0.0, 100.0),
+            (554.065640, 100.0),
+            (851.993500, 80.0),
+            (1154.065614, 80.0),
+        ),
+        (
+            (0.0, 0.0),
+            (554.065640, 0.0),
+            (851.993500, 20.0),
+            (1154.065614, 20.0),
+        ),
+    )
+
+
+def _curve_station_band_outline() -> tuple[tuple[DXFEntity, ...], Polygon]:
+    document = ezdxf.new()
+    modelspace = document.modelspace()
+    entities = (
+        modelspace.add_line((0.0, 300.0), (300.0, 300.0)),
+        modelspace.add_arc((500.0, 300.0), 200.0, 180.0, 270.0),
+        modelspace.add_line((500.0, 100.0), (900.0, 100.0)),
+        modelspace.add_line((900.0, 100.0), (900.0, 20.0)),
+        modelspace.add_line((900.0, 20.0), (505.0, 20.0)),
+        modelspace.add_line((505.0, 20.0), (300.0, 0.0)),
+        modelspace.add_line((300.0, 0.0), (0.0, 0.0)),
+        modelspace.add_line((0.0, 0.0), (0.0, 300.0)),
+    )
+    return entities, validate_closed_outline(entities, tolerance_mm=0.1)
+
+
+def _crossing_curve_outline(
+    curve_kind: str,
+) -> tuple[tuple[DXFEntity, ...], LongitudinalProof]:
+    document = ezdxf.new()
+    modelspace = document.modelspace()
+    if curve_kind == "ARC":
+        curve = modelspace.add_arc((450.0, 100.0), 450.0, 0.0, 180.0)
+    else:
+        curve = modelspace.add_ellipse(
+            (450.0, 100.0),
+            (450.0, 0.0),
+            0.5,
+            0.0,
+            pi,
+        )
+    entities = (
+        curve,
+        modelspace.add_line((0.0, 100.0), (0.0, 0.0)),
+        modelspace.add_line((0.0, 0.0), (300.0, 0.0)),
+        modelspace.add_line((300.0, 0.0), (600.0, 0.0)),
+        modelspace.add_line((600.0, 0.0), (900.0, 0.0)),
+        modelspace.add_line((900.0, 0.0), (900.0, 100.0)),
+    )
+    stations = (
+        StationBand(0, 0.0, 0.0, (0, 1, 2)),
+        StationBand(1, 300.0, 300.0, (0, 2, 3)),
+        StationBand(2, 600.0, 600.0, (0, 3, 4)),
+        StationBand(3, 900.0, 900.0, (0, 4, 5)),
+    )
+    intervals = tuple(
+        LongitudinalIntervalEvidence(
+            index=index,
+            left_station=stations[index],
+            right_station=stations[index + 1],
+            upper_entity_indices=(0,),
+            lower_entity_indices=(index + 2,),
+            upper_span_mm=300.0,
+            lower_span_mm=300.0,
+            upper_delta_y_mm=0.0,
+            lower_delta_y_mm=0.0,
+            is_end_feature=False,
+            is_turn_candidate=index == 1,
+            source_handles=(f"upper-{index}", f"lower-{index}"),
+        )
+        for index in range(3)
+    )
+    return entities, LongitudinalProof(
+        intervals=intervals,
+        carrier_interval_indices=(1,),
+        selection_reason="paired_visible_turn",
+    )
+
+
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
@@ -208,6 +295,128 @@ def test_q7_b_404_uses_one_total_ceiling_without_per_interval_growth() -> None:
     assert target.target_length_mm == pytest.approx(1162.2)
     assert target.total_extension_mm == pytest.approx(8.134385921)
     assert target.total_extension_mm < 8.2
+
+
+def test_q7_piecewise_transform_grows_only_the_carrier_interval() -> None:
+    entities, polygon = _q7_like_outline()
+    proof = analyze_longitudinal_outline(entities, polygon, thickness_mm=30.0)
+
+    transformed, metrics = transform_outline(
+        entities,
+        longitudinal=proof,
+        projection_length_mm=1154.065614,
+        k_length_mm=1162.124078,
+        bom_length_mm=1162.0,
+        anchor_x_mm=0.0,
+    )
+
+    assert metrics.target_length_mm == pytest.approx(1162.2)
+    assert metrics.total_extension_mm == pytest.approx(8.134386, abs=1e-6)
+    assert metrics.carrier_interval_indices == (1,)
+    assert metrics.intervals[0].output_upper_span_mm == pytest.approx(
+        metrics.intervals[0].source_upper_span_mm
+    )
+    assert metrics.intervals[1].output_upper_span_mm == pytest.approx(
+        metrics.intervals[1].source_upper_span_mm + metrics.total_extension_mm
+    )
+    assert metrics.intervals[2].output_upper_span_mm == pytest.approx(
+        metrics.intervals[2].source_upper_span_mm
+    )
+    assert metrics.intervals[2].downstream_shift_mm == pytest.approx(
+        8.134386,
+        abs=1e-6,
+    )
+    station_xs = tuple(
+        sorted(
+            {
+                round(float(point.x), 6)
+                for entity in transformed
+                for point in (entity.dxf.start, entity.dxf.end)
+            }
+        )
+    )
+    assert station_xs == pytest.approx(
+        (0.0, 554.065640, 860.127886, 1162.2),
+        abs=0.001,
+    )
+
+
+def test_curve_station_band_and_downstream_are_transformed_by_region() -> None:
+    entities, polygon = _curve_station_band_outline()
+    proof = analyze_longitudinal_outline(entities, polygon, thickness_mm=30.0)
+    source_upper = entities[2]
+    source_lower = entities[4]
+
+    transformed, metrics = transform_outline(
+        entities,
+        longitudinal=proof,
+        projection_length_mm=900.0,
+        k_length_mm=920.0,
+        bom_length_mm=900.0,
+        anchor_x_mm=0.0,
+    )
+
+    assert proof.carrier_interval_indices == (1,)
+    assert any(entity.dxftype() == "ELLIPSE" for entity in transformed)
+    output_upper = next(
+        entity
+        for entity in transformed
+        if entity.dxftype() == "LINE"
+        and entity.dxf.start.y == pytest.approx(100.0)
+        and entity.dxf.end.y == pytest.approx(100.0)
+    )
+    output_lower = next(
+        entity
+        for entity in transformed
+        if entity.dxftype() == "LINE"
+        and entity.dxf.start.y == pytest.approx(20.0)
+        and entity.dxf.end.y == pytest.approx(20.0)
+    )
+    right_upper_x_in = min(float(source_upper.dxf.start.x), float(source_upper.dxf.end.x))
+    right_lower_x_in = min(float(source_lower.dxf.start.x), float(source_lower.dxf.end.x))
+    right_upper_x_out = min(float(output_upper.dxf.start.x), float(output_upper.dxf.end.x))
+    right_lower_x_out = min(float(output_lower.dxf.start.x), float(output_lower.dxf.end.x))
+    assert right_upper_x_out - right_upper_x_in == pytest.approx(metrics.total_extension_mm)
+    assert right_lower_x_out - right_lower_x_in == pytest.approx(metrics.total_extension_mm)
+    downstream_span_in = abs(float(source_upper.dxf.end.x - source_upper.dxf.start.x))
+    downstream_span_out = abs(float(output_upper.dxf.end.x - output_upper.dxf.start.x))
+    assert downstream_span_out == pytest.approx(downstream_span_in)
+    assert (float(output_upper.dxf.start.y), float(output_upper.dxf.end.y)) == pytest.approx(
+        (float(source_upper.dxf.start.y), float(source_upper.dxf.end.y))
+    )
+
+
+@pytest.mark.parametrize("curve_kind", ("ARC", "ELLIPSE"))
+def test_transform_exactly_splits_native_curves_at_station_boundaries(
+    curve_kind: str,
+) -> None:
+    entities, proof = _crossing_curve_outline(curve_kind)
+
+    transformed, metrics = transform_outline(
+        entities,
+        longitudinal=proof,
+        projection_length_mm=900.0,
+        k_length_mm=920.0,
+        bom_length_mm=900.0,
+        anchor_x_mm=0.0,
+    )
+
+    curve_pieces = tuple(entity for entity in transformed if entity.dxftype() in {"ARC", "ELLIPSE"})
+    assert len(transformed) == len(entities) + 2
+    assert len(curve_pieces) == 3
+    if curve_kind == "ARC":
+        assert tuple(entity.dxftype() for entity in curve_pieces).count("ELLIPSE") == 1
+    endpoint_xs = tuple(
+        sorted(
+            {
+                round(float(point[0]), 6)
+                for entity in curve_pieces
+                for point in (flatten_entity(entity)[0], flatten_entity(entity)[-1])
+            }
+        )
+    )
+    assert endpoint_xs == pytest.approx((0.0, 300.0, 620.0, 920.0), abs=0.001)
+    assert metrics.intervals[1].output_upper_span_mm == pytest.approx(320.0)
 
 
 def test_visible_middle_turn_wins_without_using_part_identity() -> None:

@@ -27,14 +27,17 @@ class DevelopmentTarget:
 @dataclass(frozen=True, slots=True)
 class DevelopmentMetrics:
     projection_length_mm: float
-    surface_lengths_mm: tuple[float, float]
     k_factor: float
     k_length_mm: float
     bom_length_mm: float
     raw_length_mm: float
     target_length_mm: float
-    scale_x: float
+    total_extension_mm: float
     anchor_x_mm: float
+    carrier_interval_indices: tuple[int, ...]
+    carrier_upper_scale_x: float
+    carrier_lower_scale_x: float
+    intervals: tuple[DevelopedIntervalMetrics, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,6 +124,7 @@ class DevelopedPlate:
     metadata: PLMetadata
     outline: PlateOutline
     section: SectionProof
+    longitudinal: LongitudinalProof
     transformed_entities: tuple[DXFEntity, ...]
     metrics: DevelopmentMetrics
 

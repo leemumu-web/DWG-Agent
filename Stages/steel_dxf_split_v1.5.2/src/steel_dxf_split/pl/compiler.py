@@ -18,6 +18,7 @@ from .contracts import (
 )
 from .development import transform_outline
 from .geometry import analyze_geometry
+from .longitudinal import analyze_longitudinal_outline
 from .source import discover_input_files, extract_metadata, load_source_contexts
 from .writer import write_pl_dxf
 
@@ -31,10 +32,16 @@ def compile_context(
 ) -> PLCompilation:
     metadata = extract_metadata(context)
     outline, section = analyze_geometry(context, metadata)
+    longitudinal = analyze_longitudinal_outline(
+        outline.outer_entities,
+        outline.polygon,
+        thickness_mm=metadata.thickness_mm,
+    )
     transformed, metrics = transform_outline(
         outline.outer_entities,
+        longitudinal=longitudinal,
         projection_length_mm=outline.projection_length_mm,
-        surface_lengths_mm=section.equivalent_surface_lengths_mm,
+        k_length_mm=section.k_length_mm,
         bom_length_mm=metadata.bom_length_mm,
         anchor_x_mm=outline.anchor_x_mm,
     )
@@ -42,6 +49,7 @@ def compile_context(
         metadata=metadata,
         outline=outline,
         section=section,
+        longitudinal=longitudinal,
         transformed_entities=transformed,
         metrics=metrics,
     )
@@ -107,7 +115,7 @@ def _success_payload(item: PLItemResult) -> dict[str, object]:
             "source_anchor_x_mm": developed.outline.anchor_x_mm,
         },
         "transform": {
-            "scale_x": metrics.scale_x,
+            "scale_x": metrics.carrier_upper_scale_x,
             "anchor_x_mm": metrics.anchor_x_mm,
         },
         "output": {
@@ -176,9 +184,7 @@ def split_pl(
             f"报告已存在，未启用 --overwrite：{report_path}",
         )
     contexts = tuple(
-        context
-        for input_file in input_files
-        for context in load_source_contexts(input_file)
+        context for input_file in input_files for context in load_source_contexts(input_file)
     )
     metadata_by_context: dict[int, PLMetadata] = {}
     early_rejections: dict[int, PLItemResult] = {}
@@ -187,9 +193,7 @@ def split_pl(
             metadata_by_context[index] = extract_metadata(context)
         except PLSplitError as error:
             early_rejections[index] = _rejected_item(context, error)
-    counts = Counter(
-        metadata.part_number.casefold() for metadata in metadata_by_context.values()
-    )
+    counts = Counter(metadata.part_number.casefold() for metadata in metadata_by_context.values())
     duplicate_keys = {part for part, count in counts.items() if count > 1}
     items: list[PLItemResult] = []
     with TemporaryDirectory(prefix=".pl-split-", dir=output) as temporary:

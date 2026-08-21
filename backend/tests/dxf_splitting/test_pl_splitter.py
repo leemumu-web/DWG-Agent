@@ -20,21 +20,19 @@ def test_k_half_neutral_axis_uses_the_mean_of_both_plate_faces() -> None:
     assert development.neutral_axis_length((470.0, 472.0)) == pytest.approx(471.0)
 
 
-def test_development_uses_the_largest_of_projection_k_and_bom_lengths() -> None:
+def test_development_target_uses_the_largest_of_projection_k_and_bom_lengths() -> None:
     development = importlib.import_module("steel_dxf_split.pl.development")
 
-    metrics = development.calculate_development(
+    target = development.calculate_target(
         projection_length_mm=399.0,
-        surface_lengths_mm=(468.0, 472.0),
+        k_length_mm=470.0,
         bom_length_mm=469.4,
-        anchor_x_mm=12.0,
     )
 
-    assert metrics.k_factor == 0.5
-    assert metrics.k_length_mm == pytest.approx(470.0)
-    assert metrics.raw_length_mm == pytest.approx(470.0)
-    assert metrics.target_length_mm == pytest.approx(470.0)
-    assert metrics.scale_x == pytest.approx(470.0 / 399.0)
+    assert target.k_length_mm == pytest.approx(470.0)
+    assert target.raw_length_mm == pytest.approx(470.0)
+    assert target.target_length_mm == pytest.approx(470.0)
+    assert target.total_extension_mm == pytest.approx(71.0)
 
 
 @pytest.mark.parametrize(
@@ -54,28 +52,6 @@ def test_length_is_ceiled_to_one_decimal_without_arbitrary_allowance(
     development = importlib.import_module("steel_dxf_split.pl.development")
 
     assert development.ceil_tenth_mm(source) == expected
-
-
-def test_global_x_transform_anchors_left_edge_preserves_y_and_converts_arc() -> None:
-    development = importlib.import_module("steel_dxf_split.pl.development")
-    document = ezdxf.new("R2007")
-    line = document.modelspace().add_line((10.0, 2.0), (20.0, 2.0))
-    arc = document.modelspace().add_arc((20.0, 7.0), 5.0, 270.0, 90.0)
-
-    transformed, metrics = development.transform_outline(
-        (line, arc),
-        projection_length_mm=20.0,
-        surface_lengths_mm=(25.0, 25.0),
-        bom_length_mm=20.0,
-        anchor_x_mm=10.0,
-    )
-
-    assert transformed[0].dxftype() == "LINE"
-    assert transformed[0].dxf.start.x == pytest.approx(10.0)
-    assert transformed[0].dxf.start.y == pytest.approx(2.0)
-    assert transformed[0].dxf.end.x == pytest.approx(22.5)
-    assert transformed[1].dxftype() == "ELLIPSE"
-    assert metrics.scale_x == pytest.approx(1.25)
 
 
 def _new_source_document() -> ezdxf.document.Drawing:
@@ -98,11 +74,15 @@ def _add_metadata(
         20.0,
         50.0,
     )
-    layout.add_text(specification, dxfattribs={"layer": "OtherObjectType", "height": 10}).dxf.insert = (
+    layout.add_text(
+        specification, dxfattribs={"layer": "OtherObjectType", "height": 10}
+    ).dxf.insert = (
         100.0,
         y,
     )
-    layout.add_text(bom_length, dxfattribs={"layer": "OtherObjectType", "height": 10}).dxf.insert = (
+    layout.add_text(
+        bom_length, dxfattribs={"layer": "OtherObjectType", "height": 10}
+    ).dxf.insert = (
         200.0,
         y,
     )
@@ -514,12 +494,19 @@ def _developed_plate(path: Path):
     contracts = importlib.import_module("steel_dxf_split.pl.contracts")
     geometry = importlib.import_module("steel_dxf_split.pl.geometry")
     development = importlib.import_module("steel_dxf_split.pl.development")
+    longitudinal = importlib.import_module("steel_dxf_split.pl.longitudinal")
     context, metadata = _load_geometry_context(path)
     outline, section = geometry.analyze_geometry(context, metadata)
+    longitudinal_proof = longitudinal.analyze_longitudinal_outline(
+        outline.outer_entities,
+        outline.polygon,
+        thickness_mm=metadata.thickness_mm,
+    )
     entities, metrics = development.transform_outline(
         outline.outer_entities,
+        longitudinal=longitudinal_proof,
         projection_length_mm=outline.projection_length_mm,
-        surface_lengths_mm=section.equivalent_surface_lengths_mm,
+        k_length_mm=section.k_length_mm,
         bom_length_mm=metadata.bom_length_mm,
         anchor_x_mm=outline.anchor_x_mm,
     )
@@ -527,12 +514,13 @@ def _developed_plate(path: Path):
         metadata=metadata,
         outline=outline,
         section=section,
+        longitudinal=longitudinal_proof,
         transformed_entities=entities,
         metrics=metrics,
     )
 
 
-def test_writer_emits_clean_r2007_mm_layers_label_and_exact_ellipse(
+def test_writer_emits_clean_r2007_mm_layers_label_and_native_downstream_arcs(
     tmp_path: Path,
 ) -> None:
     writer = importlib.import_module("steel_dxf_split.pl.writer")
@@ -550,7 +538,8 @@ def test_writer_emits_clean_r2007_mm_layers_label_and_exact_ellipse(
         "PLATE_CUT",
         "PART_LABEL",
     }
-    assert len(saved.modelspace().query('ELLIPSE[layer=="PLATE_CUT"]')) == 1
+    assert len(saved.modelspace().query('ARC[layer=="PLATE_CUT"]')) >= 1
+    assert len(saved.modelspace().query('ELLIPSE[layer=="PLATE_CUT"]')) == 0
     labels = list(saved.modelspace().query('TEXT[layer=="PART_LABEL"]'))
     assert [label.dxf.text for label in labels] == ["p=q6-b-62"]
     assert labels[0].dxf.style == "SplitChinese"
