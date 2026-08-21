@@ -312,6 +312,48 @@ def _crossing_curve_developed(
     )
 
 
+def _q7_like_developed() -> DevelopedPlate:
+    source_entities, source_polygon = _q7_like_outline()
+    proof = analyze_longitudinal_outline(
+        source_entities,
+        source_polygon,
+        thickness_mm=30.0,
+    )
+    transformed, metrics = transform_outline(
+        source_entities,
+        longitudinal=proof,
+        projection_length_mm=1154.065614,
+        k_length_mm=1162.124078,
+        bom_length_mm=1162.0,
+        anchor_x_mm=0.0,
+    )
+    return DevelopedPlate(
+        metadata=PLMetadata("q7-b-404", 30.0, 100.0, 1162.0),
+        outline=PlateOutline(
+            outer_entities=source_entities,
+            polygon=source_polygon,
+            projection_length_mm=1154.065614,
+            width_mm=100.0,
+            anchor_x_mm=0.0,
+            source_handles=(),
+            candidate_count=1,
+        ),
+        section=SectionProof(
+            polygon=Polygon(
+                ((0.0, -40.0), (1162.124078, -40.0), (1162.124078, -10.0), (0.0, -10.0))
+            ),
+            k_length_mm=1162.124078,
+            equivalent_surface_lengths_mm=(1162.124078, 1162.124078),
+            proof_method="section_area_over_thickness_k_half",
+            source_handles=(),
+            candidate_count=1,
+        ),
+        longitudinal=proof,
+        transformed_entities=transformed,
+        metrics=metrics,
+    )
+
+
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
@@ -523,6 +565,65 @@ def test_saved_validation_rejects_a_shifted_carrier_station(tmp_path: Path) -> N
 
     with pytest.raises(PLSplitError) as error:
         write_pl_dxf(altered, tmp_path / "shifted-station.dxf")
+
+    assert error.value.code == "OUTPUT_INTERVAL_CONTRACT"
+
+
+def test_saved_validation_does_not_use_upper_fragments_for_a_missing_lower_station(
+    tmp_path: Path,
+) -> None:
+    from steel_dxf_split.pl.writer import validate_saved_pl_dxf, write_pl_dxf
+
+    developed = _q7_like_developed()
+    output = tmp_path / "chain-confusion.dxf"
+    write_pl_dxf(developed, output)
+    saved = ezdxf.readfile(output)
+    carrier_right_x = sum(
+        interval.output_lower_span_mm for interval in developed.metrics.intervals[:2]
+    )
+    upper_downstream = next(
+        entity
+        for entity in saved.modelspace().query('LINE[layer=="PLATE_CUT"]')
+        if abs(float(entity.dxf.start.x) - carrier_right_x) <= 0.001
+        and abs(float(entity.dxf.start.y) - 80.0) <= 0.001
+        and float(entity.dxf.end.x) > carrier_right_x
+    )
+    for entity in saved.modelspace().query('LINE[layer=="PLATE_CUT"]'):
+        for attribute in ("start", "end"):
+            point = entity.dxf.get(attribute)
+            if abs(float(point.x) - carrier_right_x) <= 0.001 and float(point.y) < 50.0:
+                entity.dxf.set(attribute, (float(point.x) + 5.0, point.y, point.z))
+    start = upper_downstream.dxf.start
+    end = upper_downstream.dxf.end
+    saved.modelspace().delete_entity(upper_downstream)
+    saved.modelspace().add_line(
+        start,
+        (float(start.x) + 40.0, start.y),
+        dxfattribs={"layer": "PLATE_CUT"},
+    )
+    saved.modelspace().add_line(
+        (float(start.x) + 40.0, start.y),
+        (start.x, float(start.y) - 10.0),
+        dxfattribs={"layer": "PLATE_CUT"},
+    )
+    saved.modelspace().add_line(
+        (start.x, float(start.y) - 10.0),
+        end,
+        dxfattribs={"layer": "PLATE_CUT"},
+    )
+    saved.saveas(output)
+    reopened = ezdxf.readfile(output)
+    plate = tuple(reopened.modelspace().query('*[layer=="PLATE_CUT"]'))
+    label = list(reopened.modelspace().query('TEXT[layer=="PART_LABEL"]'))
+    polygon = validate_closed_outline(plate)
+
+    assert polygon.bounds == pytest.approx((0.0, 0.0, 1162.2, 100.0), abs=0.001)
+    assert len(label) == 1
+    assert label[0].dxf.text == "p=q7-b-404"
+    assert label[0].dxf.height == pytest.approx(30.0)
+    assert reopened.audit().has_errors is False
+    with pytest.raises(PLSplitError) as error:
+        validate_saved_pl_dxf(output, developed)
 
     assert error.value.code == "OUTPUT_INTERVAL_CONTRACT"
 

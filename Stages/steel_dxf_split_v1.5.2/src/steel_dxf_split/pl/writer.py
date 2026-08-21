@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 from collections import Counter
-from math import dist
+from dataclasses import dataclass
+from math import acos, atan2, dist, hypot, tau
 from pathlib import Path
 
 import ezdxf
 from ezdxf import bbox
 from ezdxf.entities import DXFEntity
 from ezdxf.enums import TextEntityAlignment
+from ezdxf.math import ConstructionEllipse
 
 from steel_dxf_split.dxf_io import load_document
 from steel_dxf_split.part_mark_layout import (
@@ -56,44 +58,271 @@ def _interval_error(message: str) -> PLSplitError:
     return PLSplitError("OUTPUT_INTERVAL_CONTRACT", message)
 
 
-def _saved_endpoint_nodes(
+@dataclass(frozen=True, slots=True)
+class _BoundaryTopology:
+    coordinates: tuple[tuple[float, float], ...]
+    cycle: tuple[int, ...]
+
+
+def _boundary_topology(
     entities: tuple[DXFEntity, ...],
-) -> tuple[tuple[float, float], ...]:
-    nodes: list[tuple[float, float]] = []
+) -> _BoundaryTopology:
+    endpoints: list[tuple[float, float]] = []
+    raw_edges: list[tuple[int, int]] = []
     for entity in entities:
         points = flatten_entity(entity)
-        for point in (points[0], points[-1]):
-            if not any(
-                dist(point, existing) <= _DIMENSION_TOLERANCE_MM for existing in nodes
-            ):
-                nodes.append(point)
-    return tuple(nodes)
+        start = len(endpoints)
+        endpoints.extend((points[0], points[-1]))
+        raw_edges.append((start, start + 1))
+    parents = list(range(len(endpoints)))
 
+    def find(index: int) -> int:
+        while parents[index] != index:
+            parents[index] = parents[parents[index]]
+            index = parents[index]
+        return index
 
-def _measure_station_xs(
-    nodes: tuple[tuple[float, float], ...],
-    expected_upper_x: float,
-    expected_lower_x: float,
-) -> tuple[float, float]:
-    def matches(expected_x: float) -> tuple[tuple[float, float], ...]:
-        return tuple(
-            point
-            for point in nodes
-            if abs(point[0] - expected_x) <= _DIMENSION_TOLERANCE_MM
+    def join(first: int, second: int) -> None:
+        first_root = find(first)
+        second_root = find(second)
+        if first_root != second_root:
+            parents[second_root] = first_root
+
+    for index, point in enumerate(endpoints):
+        for previous in range(index):
+            if dist(point, endpoints[previous]) <= _DIMENSION_TOLERANCE_MM:
+                join(index, previous)
+    members: dict[int, list[tuple[float, float]]] = {}
+    for index, point in enumerate(endpoints):
+        members.setdefault(find(index), []).append(point)
+    root_to_node = {root: index for index, root in enumerate(sorted(members))}
+    coordinates = tuple(
+        (
+            sum(point[0] for point in members[root]) / len(members[root]),
+            sum(point[1] for point in members[root]) / len(members[root]),
         )
-
-    upper = matches(expected_upper_x)
-    lower = matches(expected_lower_x)
-    if not upper or not lower:
-        raise _interval_error("结果外轮廓缺少源证明指定的展开站位。")
-    if (
-        abs(expected_upper_x - expected_lower_x) <= _DIMENSION_TOLERANCE_MM
-        and len(upper) < 2
+        for root in sorted(members)
+    )
+    edges = tuple(
+        (root_to_node[find(first)], root_to_node[find(second)])
+        for first, second in raw_edges
+    )
+    if any(first == second for first, second in edges):
+        raise _interval_error("结果外轮廓含退化的原生边界实体。")
+    adjacency: dict[int, list[int]] = {index: [] for index in range(len(coordinates))}
+    for edge_index, (first, second) in enumerate(edges):
+        adjacency[first].append(edge_index)
+        adjacency[second].append(edge_index)
+    if not coordinates or any(
+        len(edge_indices) != 2 for edge_indices in adjacency.values()
     ):
-        raise _interval_error("结果外轮廓的上下链没有同时保留展开站位。")
-    measured_upper = min(upper, key=lambda point: abs(point[0] - expected_upper_x))[0]
-    measured_lower = min(lower, key=lambda point: abs(point[0] - expected_lower_x))[0]
-    return measured_upper, measured_lower
+        raise _interval_error("结果外轮廓不能重建为唯一闭合边界链。")
+    start = min(range(len(coordinates)), key=lambda index: (*coordinates[index], index))
+    cycle: list[int] = []
+    visited_edges: set[int] = set()
+    current = start
+    previous_edge: int | None = None
+    while True:
+        cycle.append(current)
+        candidates = tuple(
+            edge_index
+            for edge_index in adjacency[current]
+            if edge_index != previous_edge and edge_index not in visited_edges
+        )
+        if not candidates:
+            raise _interval_error("结果外轮廓边界链在闭合前中断。")
+        if previous_edge is None:
+            edge_index = min(
+                candidates,
+                key=lambda candidate: coordinates[
+                    edges[candidate][1]
+                    if edges[candidate][0] == current
+                    else edges[candidate][0]
+                ],
+            )
+        elif len(candidates) == 1:
+            edge_index = candidates[0]
+        else:
+            raise _interval_error("结果外轮廓边界链存在分叉。")
+        visited_edges.add(edge_index)
+        first, second = edges[edge_index]
+        next_node = second if first == current else first
+        previous_edge = edge_index
+        if next_node == start:
+            break
+        if next_node in cycle:
+            raise _interval_error("结果外轮廓含未闭合的独立边界环。")
+        current = next_node
+    if len(visited_edges) != len(edges) or len(cycle) != len(coordinates):
+        raise _interval_error("结果外轮廓不能重建为单一制造边界环。")
+    return _BoundaryTopology(coordinates, tuple(cycle))
+
+
+def _source_entity_y_values(
+    entity: DXFEntity,
+    station_x: float,
+) -> tuple[float, ...]:
+    if entity.dxftype() == "LINE":
+        start = entity.dxf.start
+        end = entity.dxf.end
+        delta_x = float(end.x - start.x)
+        if abs(delta_x) <= 1e-12:
+            if abs(float(start.x) - station_x) <= _DIMENSION_TOLERANCE_MM:
+                return (float(start.y), float(end.y))
+            return ()
+        parameter = (station_x - float(start.x)) / delta_x
+        if -1e-9 <= parameter <= 1.0 + 1e-9:
+            return (float(start.y + (end.y - start.y) * parameter),)
+        return ()
+    if entity.dxftype() == "ARC":
+        construction = ConstructionEllipse.from_arc(
+            center=entity.dxf.center,
+            radius=float(entity.dxf.radius),
+            extrusion=entity.dxf.extrusion,
+            start_angle=float(entity.dxf.start_angle),
+            end_angle=float(entity.dxf.end_angle),
+        )
+    elif entity.dxftype() == "ELLIPSE":
+        construction = entity.construction_tool()
+    else:
+        return ()
+    major_x = float(construction.major_axis.x)
+    minor_x = float(construction.minor_axis.x)
+    x_radius = hypot(major_x, minor_x)
+    if x_radius <= 1e-12:
+        return ()
+    ratio = (station_x - float(construction.center.x)) / x_radius
+    if ratio < -1.0 - 1e-9 or ratio > 1.0 + 1e-9:
+        return ()
+    phase = atan2(minor_x, major_x)
+    offset = acos(max(-1.0, min(1.0, ratio)))
+    start_param = float(construction.start_param)
+    span = float(construction.param_span)
+    parameters = tuple(
+        parameter
+        for parameter in (phase - offset, phase + offset)
+        if (parameter - start_param) % tau <= span + 1e-9
+    )
+    return tuple(float(point.y) for point in construction.vertices(parameters))
+
+
+def _source_station_y(
+    developed: DevelopedPlate,
+    station_index: int,
+    station_x: float,
+    *,
+    upper: bool,
+) -> float:
+    intervals = developed.longitudinal.intervals
+    adjacent = (
+        (intervals[0],)
+        if station_index == 0
+        else (intervals[-1],)
+        if station_index == len(intervals)
+        else (intervals[station_index - 1], intervals[station_index])
+    )
+    source_indices = {
+        source_index
+        for interval in adjacent
+        for source_index in (
+            interval.upper_entity_indices if upper else interval.lower_entity_indices
+        )
+    }
+    values = tuple(
+        value
+        for source_index in source_indices
+        for value in _source_entity_y_values(
+            developed.outline.outer_entities[source_index],
+            station_x,
+        )
+    )
+    if not values:
+        raise _interval_error("源纵向证明的上下链站位无法在原生边界上定位。")
+    return max(values) if upper else min(values)
+
+
+def _station_nodes(
+    topology: _BoundaryTopology,
+    expected_points: tuple[tuple[float, float], ...],
+) -> tuple[int, ...]:
+    result: list[int] = []
+    for expected in expected_points:
+        matches = tuple(
+            index
+            for index, point in enumerate(topology.coordinates)
+            if dist(point, expected) <= _DIMENSION_TOLERANCE_MM
+        )
+        if len(matches) != 1:
+            raise _interval_error("结果边界链没有唯一保留源证明指定的展开站位。")
+        result.append(matches[0])
+    if len(set(result)) != len(result):
+        raise _interval_error("结果边界链的多个展开站位错误地落在同一拓扑节点。")
+    return tuple(result)
+
+
+def _cycle_path(
+    cycle: tuple[int, ...],
+    start: int,
+    end: int,
+    step: int,
+) -> tuple[int, ...]:
+    index = cycle.index(start)
+    result = [start]
+    while result[-1] != end:
+        index = (index + step) % len(cycle)
+        if cycle[index] == start:
+            raise _interval_error("结果上下边界链不能连接全部源证明站位。")
+        result.append(cycle[index])
+    return tuple(result)
+
+
+def _designated_chain_points(
+    topology: _BoundaryTopology,
+    station_nodes: tuple[int, ...],
+    other_station_nodes: tuple[int, ...],
+) -> tuple[tuple[float, float], ...]:
+    foreign = set(other_station_nodes) - set(station_nodes)
+    candidates: list[tuple[int, ...]] = []
+    for step in (1, -1):
+        path = _cycle_path(topology.cycle, station_nodes[0], station_nodes[-1], step)
+        positions = tuple(path.index(node) for node in station_nodes if node in path)
+        if (
+            len(positions) == len(station_nodes)
+            and positions == tuple(sorted(positions))
+            and not foreign.intersection(path)
+        ):
+            candidates.append(path)
+    if len(candidates) != 1:
+        raise _interval_error("结果外轮廓不能唯一重建源证明指定的上下边界链。")
+    return tuple(topology.coordinates[node] for node in station_nodes)
+
+
+def _expected_station_points(
+    developed: DevelopedPlate,
+    source_upper_x: tuple[float, ...],
+    source_lower_x: tuple[float, ...],
+    output_upper_x: tuple[float, ...],
+    output_lower_x: tuple[float, ...],
+) -> tuple[tuple[tuple[float, float], ...], tuple[tuple[float, float], ...]]:
+    upper = tuple(
+        (
+            output_x,
+            _source_station_y(developed, index, source_x, upper=True),
+        )
+        for index, (source_x, output_x) in enumerate(
+            zip(source_upper_x, output_upper_x, strict=True)
+        )
+    )
+    lower = tuple(
+        (
+            output_x,
+            _source_station_y(developed, index, source_x, upper=False),
+        )
+        for index, (source_x, output_x) in enumerate(
+            zip(source_lower_x, output_lower_x, strict=True)
+        )
+    )
+    return upper, lower
 
 
 def _validate_saved_intervals(
@@ -152,19 +381,34 @@ def _validate_saved_intervals(
         or abs(lower_growth - metrics.total_extension_mm) > _DIMENSION_TOLERANCE_MM
     ):
         raise _interval_error("结果承载区间没有完整吸收总展开增量。")
-    expected_upper = [float(proof_intervals[0].left_station.upper_x_mm)]
-    expected_lower = [float(proof_intervals[0].left_station.lower_x_mm)]
+    source_upper = (
+        float(proof_intervals[0].left_station.upper_x_mm),
+        *(float(interval.right_station.upper_x_mm) for interval in proof_intervals),
+    )
+    source_lower = (
+        float(proof_intervals[0].left_station.lower_x_mm),
+        *(float(interval.right_station.lower_x_mm) for interval in proof_intervals),
+    )
+    expected_upper = [source_upper[0]]
+    expected_lower = [source_lower[0]]
     for interval in interval_metrics:
         expected_upper.append(expected_upper[-1] + interval.output_upper_span_mm)
         expected_lower.append(expected_lower[-1] + interval.output_lower_span_mm)
-    nodes = _saved_endpoint_nodes(plate_entities)
-    measured = tuple(
-        _measure_station_xs(nodes, upper, lower)
-        for upper, lower in zip(expected_upper, expected_lower, strict=True)
+    expected_upper_points, expected_lower_points = _expected_station_points(
+        developed,
+        source_upper,
+        source_lower,
+        tuple(expected_upper),
+        tuple(expected_lower),
     )
+    topology = _boundary_topology(plate_entities)
+    upper_nodes = _station_nodes(topology, expected_upper_points)
+    lower_nodes = _station_nodes(topology, expected_lower_points)
+    measured_upper = _designated_chain_points(topology, upper_nodes, lower_nodes)
+    measured_lower = _designated_chain_points(topology, lower_nodes, upper_nodes)
     for index, interval in enumerate(interval_metrics):
-        measured_upper_span = measured[index + 1][0] - measured[index][0]
-        measured_lower_span = measured[index + 1][1] - measured[index][1]
+        measured_upper_span = measured_upper[index + 1][0] - measured_upper[index][0]
+        measured_lower_span = measured_lower[index + 1][0] - measured_lower[index][0]
         if (
             abs(measured_upper_span - interval.output_upper_span_mm)
             > _DIMENSION_TOLERANCE_MM
@@ -172,6 +416,49 @@ def _validate_saved_intervals(
             > _DIMENSION_TOLERANCE_MM
         ):
             raise _interval_error("结果外轮廓的展开区间跨度与审计指标不一致。")
+    expected_upper_shift = 0.0
+    expected_lower_shift = 0.0
+    for index, interval in enumerate(interval_metrics):
+        if (
+            abs(measured_upper[index][0] - source_upper[index] - expected_upper_shift)
+            > _DIMENSION_TOLERANCE_MM
+            or abs(
+                measured_lower[index][0] - source_lower[index] - expected_lower_shift
+            )
+            > _DIMENSION_TOLERANCE_MM
+        ):
+            raise _interval_error("结果上下边界链的绝对下游位移不一致。")
+        expected_upper_shift += (
+            interval.output_upper_span_mm - interval.source_upper_span_mm
+        )
+        expected_lower_shift += (
+            interval.output_lower_span_mm - interval.source_lower_span_mm
+        )
+    if (
+        abs(measured_upper[-1][0] - source_upper[-1] - expected_upper_shift)
+        > _DIMENSION_TOLERANCE_MM
+        or abs(measured_lower[-1][0] - source_lower[-1] - expected_lower_shift)
+        > _DIMENSION_TOLERANCE_MM
+    ):
+        raise _interval_error("结果上下边界链的末端下游位移不一致。")
+    carrier_first = carrier[0]
+    carrier_end = carrier[-1] + 1
+    actual_upper_growth = (
+        measured_upper[carrier_end][0]
+        - measured_upper[carrier_first][0]
+        - (source_upper[carrier_end] - source_upper[carrier_first])
+    )
+    actual_lower_growth = (
+        measured_lower[carrier_end][0]
+        - measured_lower[carrier_first][0]
+        - (source_lower[carrier_end] - source_lower[carrier_first])
+    )
+    if (
+        abs(actual_upper_growth - metrics.total_extension_mm) > _DIMENSION_TOLERANCE_MM
+        or abs(actual_lower_growth - metrics.total_extension_mm)
+        > _DIMENSION_TOLERANCE_MM
+    ):
+        raise _interval_error("结果上下承载链没有共同吸收总展开增量。")
 
 
 def validate_saved_pl_dxf(
