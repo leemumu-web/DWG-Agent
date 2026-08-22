@@ -601,7 +601,6 @@ def test_transform_exactly_splits_native_curves_at_station_boundaries(
     )
 
     curve_pieces = tuple(entity for entity in transformed if entity.dxftype() in {"ARC", "ELLIPSE"})
-    assert len(transformed) == len(entities) + 2
     assert len(curve_pieces) == 3
     if curve_kind == "ARC":
         assert tuple(entity.dxftype() for entity in curve_pieces).count("ELLIPSE") == 1
@@ -632,7 +631,13 @@ def test_saved_validation_accepts_additional_native_segmentation(
     saved_plate_entities = tuple(
         entity for entity in saved.modelspace() if entity.dxf.layer == "PLATE_CUT"
     )
-    assert len(saved_plate_entities) > len(source_entities)
+    source_curve_count = sum(
+        entity.dxftype() in {"ARC", "ELLIPSE"} for entity in source_entities
+    )
+    saved_curve_count = sum(
+        entity.dxftype() in {"ARC", "ELLIPSE"} for entity in saved_plate_entities
+    )
+    assert saved_curve_count == source_curve_count + 2
     line = max(
         saved.modelspace().query('LINE[layer=="PLATE_CUT"]'),
         key=lambda entity: abs(float(entity.dxf.end.x - entity.dxf.start.x)),
@@ -665,15 +670,32 @@ def test_saved_validation_rejects_a_shifted_carrier_station(tmp_path: Path) -> N
     carrier_right_x = sum(
         interval.output_lower_span_mm for interval in developed.metrics.intervals[:2]
     )
-    tampered = []
+    tampered: list[DXFEntity] = []
     for entity in developed.transformed_entities:
-        clone = entity.copy()
-        if clone.dxftype() == "LINE":
-            for attribute in ("start", "end"):
-                point = clone.dxf.get(attribute)
-                if abs(float(point.x) - carrier_right_x) <= 0.001:
-                    clone.dxf.set(attribute, (float(point.x) + 5.0, point.y, point.z))
-        tampered.append(clone)
+        if entity.dxftype() != "LINE":
+            tampered.append(entity.copy())
+            continue
+        start = entity.dxf.start
+        end = entity.dxf.end
+        delta_x = float(end.x - start.x)
+        if abs(delta_x) <= 1e-9:
+            tampered.append(entity.copy())
+            continue
+        parameter = (carrier_right_x - float(start.x)) / delta_x
+        if not 1e-6 < parameter < 1.0 - 1e-6:
+            tampered.append(entity.copy())
+            continue
+        station = start.lerp(end, factor=parameter)
+        shifted = (
+            float(station.x) + 5.0,
+            float(station.y) + 5.0,
+            float(station.z),
+        )
+        first = entity.copy()
+        first.dxf.end = shifted
+        second = entity.copy()
+        second.dxf.start = shifted
+        tampered.extend((first, second))
     altered = replace(developed, transformed_entities=tuple(tampered))
 
     with pytest.raises(PLSplitError) as error:

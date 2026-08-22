@@ -289,52 +289,6 @@ def _source_station_y(
     return max(values) if upper else min(values)
 
 
-def _source_station_is_line_interior(
-    developed: DevelopedPlate,
-    station_index: int,
-    station_x: float,
-    *,
-    upper: bool,
-) -> bool:
-    intervals = developed.longitudinal.intervals
-    adjacent = (
-        (intervals[0],)
-        if station_index == 0
-        else (intervals[-1],)
-        if station_index == len(intervals)
-        else (intervals[station_index - 1], intervals[station_index])
-    )
-    source_indices = {
-        source_index
-        for interval in adjacent
-        for source_index in (
-            interval.upper_entity_indices if upper else interval.lower_entity_indices
-        )
-    }
-    target_y = _source_station_y(
-        developed,
-        station_index,
-        station_x,
-        upper=upper,
-    )
-    for source_index in source_indices:
-        entity = developed.outline.outer_entities[source_index]
-        if entity.dxftype() != "LINE":
-            continue
-        start = entity.dxf.start
-        end = entity.dxf.end
-        delta_x = float(end.x - start.x)
-        if abs(delta_x) <= 1e-12:
-            continue
-        parameter = (station_x - float(start.x)) / delta_x
-        if not 1e-9 < parameter < 1.0 - 1e-9:
-            continue
-        y = float(start.y + (end.y - start.y) * parameter)
-        if abs(y - target_y) <= _DIMENSION_TOLERANCE_MM:
-            return True
-    return False
-
-
 def _station_nodes(
     topology: _BoundaryTopology,
     expected_points: tuple[tuple[float, float], ...],
@@ -470,10 +424,11 @@ def _validate_saved_intervals(
         for interval in interval_metrics
         if interval.is_carrier
     )
-    if (
-        abs(upper_growth - metrics.total_extension_mm) > _DIMENSION_TOLERANCE_MM
-        or abs(lower_growth - metrics.total_extension_mm) > _DIMENSION_TOLERANCE_MM
-    ):
+    growth_errors = (
+        abs(upper_growth - metrics.total_extension_mm),
+        abs(lower_growth - metrics.total_extension_mm),
+    )
+    if max(growth_errors) > 0.1 or min(growth_errors) > _DIMENSION_TOLERANCE_MM:
         raise _interval_error("结果承载区间没有完整吸收总展开增量。")
     source_upper = (
         float(proof_intervals[0].left_station.upper_x_mm),
@@ -495,22 +450,7 @@ def _validate_saved_intervals(
         tuple(expected_upper),
         tuple(expected_lower),
     )
-    virtual_station_points = tuple(
-        point
-        for upper, source_values, expected_points in (
-            (True, source_upper, expected_upper_points),
-            (False, source_lower, expected_lower_points),
-        )
-        for index, (source_x, point) in enumerate(
-            zip(source_values, expected_points, strict=True)
-        )
-        if _source_station_is_line_interior(
-            developed,
-            index,
-            source_x,
-            upper=upper,
-        )
-    )
+    virtual_station_points = (*expected_upper_points, *expected_lower_points)
     topology = _boundary_topology(plate_entities, virtual_station_points)
     upper_nodes = _station_nodes(topology, expected_upper_points)
     lower_nodes = _station_nodes(topology, expected_lower_points)
@@ -563,12 +503,22 @@ def _validate_saved_intervals(
         - measured_lower[carrier_first][0]
         - (source_lower[carrier_end] - source_lower[carrier_first])
     )
+    expected_upper_growth = sum(
+        interval.output_upper_span_mm - interval.source_upper_span_mm
+        for interval in interval_metrics
+        if interval.is_carrier
+    )
+    expected_lower_growth = sum(
+        interval.output_lower_span_mm - interval.source_lower_span_mm
+        for interval in interval_metrics
+        if interval.is_carrier
+    )
     if (
-        abs(actual_upper_growth - metrics.total_extension_mm) > _DIMENSION_TOLERANCE_MM
-        or abs(actual_lower_growth - metrics.total_extension_mm)
+        abs(actual_upper_growth - expected_upper_growth) > _DIMENSION_TOLERANCE_MM
+        or abs(actual_lower_growth - expected_lower_growth)
         > _DIMENSION_TOLERANCE_MM
     ):
-        raise _interval_error("结果上下承载链没有共同吸收总展开增量。")
+        raise _interval_error("结果上下承载链与审计指标的展开增量不一致。")
 
 
 def validate_saved_pl_dxf(

@@ -9,7 +9,7 @@ from typing import cast
 
 from ezdxf import bbox
 from ezdxf.entities import Arc, DXFEntity, Ellipse, Line
-from ezdxf.math import ConstructionEllipse, Matrix44
+from ezdxf.math import ConstructionEllipse, Matrix44, Vec3
 from ezdxf.transform import copies
 
 from .contracts import (
@@ -25,6 +25,7 @@ from .longitudinal import canonical_boundary_pieces
 K_FACTOR = 0.5
 _TENTH_MM = Decimal("0.1")
 _DIMENSION_TOLERANCE_MM = 0.001
+_DETAIL_TOLERANCE_MM = 0.1
 _NUMERIC_EPSILON = 1e-9
 
 
@@ -419,6 +420,90 @@ def _transform_groups(
     return tuple(transformed)
 
 
+def _oriented_line_points(entity: DXFEntity) -> tuple[Vec3, Vec3]:
+    line = cast(Line, entity)
+    start = Vec3(line.dxf.start)
+    end = Vec3(line.dxf.end)
+    return (start, end) if start.y <= end.y else (end, start)
+
+
+def _move_line_node(
+    pieces: tuple[_NativePiece, ...],
+    old: Vec3,
+    new_x: float,
+) -> tuple[_NativePiece, ...]:
+    moved: list[_NativePiece] = []
+    matched = 0
+    for piece in pieces:
+        if piece.entity.dxftype() != "LINE":
+            moved.append(piece)
+            continue
+        entity = piece.entity.copy()
+        for attribute in ("start", "end"):
+            point = Vec3(getattr(entity.dxf, attribute))
+            if point.distance(old) <= _DIMENSION_TOLERANCE_MM:
+                setattr(entity.dxf, attribute, (new_x, old.y, old.z))
+                matched += 1
+        moved.append(_NativePiece(piece.source_index, entity))
+    if matched != 2:
+        raise _station_split_error("端边斜率校正节点没有唯一连接两条原生 LINE。")
+    return tuple(moved)
+
+
+def _normalize_terminal_pair(
+    pieces: tuple[_NativePiece, ...],
+    longitudinal: LongitudinalProof,
+) -> tuple[tuple[_NativePiece, ...], float, float]:
+    if longitudinal.carrier_interval_indices[-1] != len(longitudinal.intervals) - 1:
+        return pieces, 0.0, 0.0
+    entities = tuple(piece.entity for piece in pieces)
+    _, min_y, _, max_y = _outline_bounds(entities)
+    height = max_y - min_y
+    candidates = tuple(
+        piece
+        for piece in pieces
+        if piece.entity.dxftype() == "LINE"
+        and abs(
+            abs(float(piece.entity.dxf.end.y - piece.entity.dxf.start.y)) - height
+        )
+        <= _DETAIL_TOLERANCE_MM
+    )
+    if len(candidates) != 2:
+        return pieces, 0.0, 0.0
+    left, right = sorted(
+        candidates,
+        key=lambda piece: sum(point.x for point in _oriented_line_points(piece.entity)),
+    )
+    left_lower, left_upper = _oriented_line_points(left.entity)
+    right_lower, right_upper = _oriented_line_points(right.entity)
+    left_dy = left_upper.y - left_lower.y
+    right_dy = right_upper.y - right_lower.y
+    if (
+        left_dy <= _NUMERIC_EPSILON
+        or right_dy <= _NUMERIC_EPSILON
+        or abs(left_dy - right_dy) > _DETAIL_TOLERANCE_MM
+    ):
+        return pieces, 0.0, 0.0
+    desired_right_dx = (left_upper.x - left_lower.x) * right_dy / left_dy
+    actual_right_dx = right_upper.x - right_lower.x
+    difference = actual_right_dx - desired_right_dx
+    if abs(difference) <= _NUMERIC_EPSILON or abs(difference) > _DETAIL_TOLERANCE_MM:
+        return pieces, 0.0, 0.0
+    if right_upper.x >= right_lower.x:
+        new_lower_x = right_upper.x - desired_right_dx
+        return (
+            _move_line_node(pieces, right_lower, new_lower_x),
+            0.0,
+            new_lower_x - right_lower.x,
+        )
+    new_upper_x = right_lower.x + desired_right_dx
+    return (
+        _move_line_node(pieces, right_upper, new_upper_x),
+        new_upper_x - right_upper.x,
+        0.0,
+    )
+
+
 def _merge_collinear_lines(
     first: DXFEntity,
     second: DXFEntity,
@@ -500,6 +585,8 @@ def _developed_intervals(
     upper_scale: float,
     lower_scale: float,
     downstream_shift: float,
+    upper_terminal_correction: float,
+    lower_terminal_correction: float,
 ) -> tuple[DevelopedIntervalMetrics, ...]:
     result: list[DevelopedIntervalMetrics] = []
     carrier = set(longitudinal.carrier_interval_indices)
@@ -527,6 +614,9 @@ def _developed_intervals(
             ) * lower_scale + lower_left
             output_upper = upper_end - upper_start
             output_lower = lower_end - lower_start
+            if interval.index == last_carrier:
+                output_upper += upper_terminal_correction
+                output_lower += lower_terminal_correction
             shift = 0.0
         metric = DevelopedIntervalMetrics(
             index=interval.index,
@@ -555,10 +645,13 @@ def _developed_intervals(
         for metric in result
         if metric.is_carrier
     )
-    if (
-        abs(upper_growth - downstream_shift) > _DIMENSION_TOLERANCE_MM
-        or abs(lower_growth - downstream_shift) > _DIMENSION_TOLERANCE_MM
-    ):
+    growth_errors = (
+        abs(upper_growth - downstream_shift),
+        abs(lower_growth - downstream_shift),
+    )
+    if max(growth_errors) > _DETAIL_TOLERANCE_MM or min(
+        growth_errors
+    ) > _DIMENSION_TOLERANCE_MM:
         raise PLSplitError("TRANSFORM_INTERVAL", "承载纵向区间没有完整吸收总展开增量。")
     return tuple(result)
 
@@ -608,6 +701,8 @@ def transform_outline(
                 f"主视图原生实体无法完整执行0.1 mm内等比拉伸。{messages}",
             )
         transformed = tuple(transformed)
+        upper_terminal_correction = 0.0
+        lower_terminal_correction = 0.0
     else:
         boundary_pieces = canonical_boundary_pieces(source)
         station_values = _source_station_values(longitudinal, len(source))
@@ -619,20 +714,24 @@ def transform_outline(
                 station_values[boundary_piece.source_index],
             )
         )
+        grouped = _transform_groups(
+            pieces,
+            longitudinal,
+            first_carrier=first,
+            last_carrier=last,
+            upper_left=upper_left,
+            lower_left=lower_left,
+            upper_scale=upper_scale,
+            lower_scale=lower_scale,
+            downstream_shift=target.total_extension_mm,
+        )
+        grouped, upper_terminal_correction, lower_terminal_correction = (
+            _normalize_terminal_pair(grouped, longitudinal)
+        )
         transformed = tuple(
             piece.entity
             for piece in _coalesce_output_lines(
-                _transform_groups(
-                    pieces,
-                    longitudinal,
-                    first_carrier=first,
-                    last_carrier=last,
-                    upper_left=upper_left,
-                    lower_left=lower_left,
-                    upper_scale=upper_scale,
-                    lower_scale=lower_scale,
-                    downstream_shift=target.total_extension_mm,
-                )
+                grouped
             )
         )
     validate_closed_outline(transformed)
@@ -658,6 +757,8 @@ def transform_outline(
         upper_scale=upper_scale,
         lower_scale=lower_scale,
         downstream_shift=target.total_extension_mm,
+        upper_terminal_correction=upper_terminal_correction,
+        lower_terminal_correction=lower_terminal_correction,
     )
     return transformed, DevelopmentMetrics(
         projection_length_mm=target.projection_length_mm,
@@ -669,7 +770,13 @@ def transform_outline(
         total_extension_mm=target.total_extension_mm,
         anchor_x_mm=anchor,
         carrier_interval_indices=longitudinal.carrier_interval_indices,
-        carrier_upper_scale_x=upper_scale,
-        carrier_lower_scale_x=lower_scale,
+        carrier_upper_scale_x=(
+            upper_span + target.total_extension_mm + upper_terminal_correction
+        )
+        / upper_span,
+        carrier_lower_scale_x=(
+            lower_span + target.total_extension_mm + lower_terminal_correction
+        )
+        / lower_span,
         intervals=intervals,
     )
