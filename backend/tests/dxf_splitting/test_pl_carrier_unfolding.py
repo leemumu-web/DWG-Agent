@@ -80,12 +80,9 @@ def _fragmented_rectangle() -> tuple[tuple[DXFEntity, ...], Polygon]:
         ((0.0, 0.0), (0.0, 350.0)),
     )
     entities = tuple(
-        modelspace.add_line(start, end, dxfattribs={"layer": "Part"})
-        for start, end in courses
+        modelspace.add_line(start, end, dxfattribs={"layer": "Part"}) for start, end in courses
     )
-    polygon = Polygon(
-        ((0.0, 0.0), (1000.0, 0.0), (1000.0, 350.0), (0.0, 350.0))
-    )
+    polygon = Polygon(((0.0, 0.0), (1000.0, 0.0), (1000.0, 350.0), (0.0, 350.0)))
     return entities, polygon
 
 
@@ -495,9 +492,7 @@ def test_cross_source_collinear_courses_are_one_output_line() -> None:
     assert metrics.target_length_mm == pytest.approx(1100.0)
     assert tuple(entity.dxftype() for entity in transformed) == ("LINE",) * 4
     actual = validate_closed_outline(transformed)
-    expected = Polygon(
-        ((0.0, 0.0), (1100.0, 0.0), (1100.0, 350.0), (0.0, 350.0))
-    )
+    expected = Polygon(((0.0, 0.0), (1100.0, 0.0), (1100.0, 350.0), (0.0, 350.0)))
     assert actual.symmetric_difference(expected).area <= 0.001
 
 
@@ -521,14 +516,10 @@ def test_uniform_projection_fallback_coalesces_cross_source_courses() -> None:
 
 
 def test_uniform_projection_fallback_removes_contained_duplicate_line() -> None:
-    entities, polygon = _line_outline(
-        ((0.0, 0.0), (1000.0, 0.0), (1000.0, 350.0), (0.0, 350.0))
-    )
+    entities, polygon = _line_outline(((0.0, 0.0), (1000.0, 0.0), (1000.0, 350.0), (0.0, 350.0)))
     duplicate = entities[0].copy()
     duplicate.dxf.start = (800.0, 0.0)
-    proof = analyze_longitudinal_outline(
-        (*entities, duplicate), polygon, thickness_mm=35.0
-    )
+    proof = analyze_longitudinal_outline((*entities, duplicate), polygon, thickness_mm=35.0)
 
     transformed, _ = transform_outline(
         (*entities, duplicate),
@@ -545,13 +536,85 @@ def test_uniform_projection_fallback_removes_contained_duplicate_line() -> None:
 
 
 def test_contained_collinear_overlap_is_not_merged_as_adjacent_courses() -> None:
-    entities, _ = _line_outline(
-        ((0.0, 0.0), (1000.0, 0.0), (1000.0, 350.0), (0.0, 350.0))
-    )
+    entities, _ = _line_outline(((0.0, 0.0), (1000.0, 0.0), (1000.0, 350.0), (0.0, 350.0)))
     contained = entities[0].copy()
     contained.dxf.start = (800.0, 0.0)
 
     assert _merge_collinear_lines(entities[0], contained) is None
+
+
+def test_sub_tenth_breakpoint_on_one_straight_course_is_coalesced() -> None:
+    document = ezdxf.new()
+    modelspace = document.modelspace()
+    first = modelspace.add_line((0.0, 0.0), (376.019684, 0.044969))
+    second = modelspace.add_line((376.019684, 0.044969), (409.09578, 0.049197))
+
+    assert _merge_collinear_lines(first, second) is None
+    merged = _merge_collinear_lines(first, second, allow_detail_deviation=True)
+
+    assert merged is not None
+    assert merged.dxf.start == first.dxf.start
+    assert merged.dxf.end == second.dxf.end
+
+
+def test_paired_manufacturing_connector_keeps_only_the_lower_native_segment() -> None:
+    entities, polygon = _line_outline(
+        (
+            (0.0, 100.0),
+            (400.0, 100.0),
+            (400.5, 100.0),
+            (1000.0, 100.0),
+            (1000.0, 0.0),
+            (400.5, 0.0),
+            (400.0, 0.0),
+            (0.0, 0.0),
+        )
+    )
+    proof = analyze_longitudinal_outline(entities, polygon, thickness_mm=35.0)
+
+    transformed, _ = transform_outline(
+        entities,
+        longitudinal=proof,
+        projection_length_mm=1000.0,
+        k_length_mm=1000.0,
+        bom_length_mm=1000.0,
+        anchor_x_mm=0.0,
+    )
+
+    assert tuple(entity.dxftype() for entity in transformed) == ("LINE",) * 7
+    short_lines = tuple(
+        entity for entity in transformed if entity.dxf.start.distance(entity.dxf.end) <= 0.6
+    )
+    assert len(short_lines) == 1
+    assert sum(point.y for point in (short_lines[0].dxf.start, short_lines[0].dxf.end)) < 1.0
+    assert validate_closed_outline(transformed, tolerance_mm=0.1).is_valid
+
+
+def test_unpaired_manufacturing_connector_becomes_one_protected_node() -> None:
+    entities, polygon = _line_outline(
+        (
+            (0.0, 100.0),
+            (700.0, 100.0),
+            (700.5, 100.0),
+            (1000.0, 100.0),
+            (1000.0, 0.0),
+            (0.0, 0.0),
+        )
+    )
+    proof = analyze_longitudinal_outline(entities, polygon, thickness_mm=35.0)
+
+    transformed, _ = transform_outline(
+        entities,
+        longitudinal=proof,
+        projection_length_mm=1000.0,
+        k_length_mm=1000.0,
+        bom_length_mm=1000.0,
+        anchor_x_mm=0.0,
+    )
+
+    assert tuple(entity.dxftype() for entity in transformed) == ("LINE",) * 5
+    assert all(entity.dxf.start.distance(entity.dxf.end) > 0.6 for entity in transformed)
+    assert validate_closed_outline(transformed, tolerance_mm=0.1).is_valid
 
 
 def test_q7_piecewise_transform_grows_only_the_carrier_interval() -> None:
@@ -689,9 +752,7 @@ def test_saved_validation_accepts_additional_native_segmentation(
     saved_plate_entities = tuple(
         entity for entity in saved.modelspace() if entity.dxf.layer == "PLATE_CUT"
     )
-    source_curve_count = sum(
-        entity.dxftype() in {"ARC", "ELLIPSE"} for entity in source_entities
-    )
+    source_curve_count = sum(entity.dxftype() in {"ARC", "ELLIPSE"} for entity in source_entities)
     saved_curve_count = sum(
         entity.dxftype() in {"ARC", "ELLIPSE"} for entity in saved_plate_entities
     )

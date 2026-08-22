@@ -20,19 +20,21 @@ from .contracts import (
     PLSplitError,
 )
 from .geometry import validate_closed_outline
-from .longitudinal import canonical_boundary_pieces
+from .longitudinal import BoundaryPiece, canonical_boundary_pieces
 
 K_FACTOR = 0.5
 _TENTH_MM = Decimal("0.1")
 _DIMENSION_TOLERANCE_MM = 0.001
 _DETAIL_TOLERANCE_MM = 0.1
 _NUMERIC_EPSILON = 1e-9
+_SHORT_CONNECTOR_MAX_MM = 0.6
 
 
 @dataclass(frozen=True, slots=True)
 class _NativePiece:
     source_index: int
     entity: DXFEntity
+    connector_role: str = "ordinary"
 
 
 def _positive_finite(value: float, name: str) -> float:
@@ -104,6 +106,50 @@ def _outline_bounds(
         float(bounds.extmax.x),
         float(bounds.extmax.y),
     )
+
+
+def _short_connector_roles(
+    pieces: tuple[BoundaryPiece, ...],
+    *,
+    min_y: float,
+    max_y: float,
+) -> tuple[str, ...]:
+    roles = ["ordinary"] * len(pieces)
+    middle_y = (min_y + max_y) / 2.0
+    candidates: list[tuple[int, str, float, float]] = []
+    for index, piece in enumerate(pieces):
+        if piece.entity.dxftype() != "LINE":
+            continue
+        start = Vec3(piece.entity.dxf.start)
+        end = Vec3(piece.entity.dxf.end)
+        length = start.distance(end)
+        if not (_NUMERIC_EPSILON < length <= _SHORT_CONNECTOR_MAX_MM):
+            continue
+        if abs(end.x - start.x) <= abs(end.y - start.y):
+            continue
+        connector_y = (start.y + end.y) / 2.0
+        side = "upper" if connector_y > middle_y else "lower"
+        course_y = max_y if side == "upper" else min_y
+        if abs(connector_y - course_y) > _DETAIL_TOLERANCE_MM:
+            continue
+        candidates.append((index, side, min(start.x, end.x), max(start.x, end.x)))
+
+    for index, side, min_x, max_x in candidates:
+        opposite = tuple(
+            other_index
+            for other_index, other_side, other_min_x, other_max_x in candidates
+            if other_index != index
+            and other_side != side
+            and max(min_x, other_min_x)
+            <= min(max_x, other_max_x) + _SHORT_CONNECTOR_MAX_MM
+        )
+        if len(opposite) > 1:
+            continue
+        if side == "lower" and len(opposite) == 1:
+            roles[index] = "preserve_lower"
+        elif side == "upper":
+            roles[index] = "collapse"
+    return tuple(roles)
 
 
 def _unique_sorted(values: Sequence[float]) -> tuple[float, ...]:
@@ -414,7 +460,7 @@ def _transform_groups(
                 f"主视图原生实体无法完整执行分区变换。{messages}",
             )
         transformed.extend(
-            _NativePiece(piece.source_index, entity)
+            _NativePiece(piece.source_index, entity, piece.connector_role)
             for piece, entity in zip(source, result, strict=True)
         )
     return tuple(transformed)
@@ -444,7 +490,7 @@ def _move_line_node(
             if point.distance(old) <= _DIMENSION_TOLERANCE_MM:
                 setattr(entity.dxf, attribute, (new_x, old.y, old.z))
                 matched += 1
-        moved.append(_NativePiece(piece.source_index, entity))
+        moved.append(_NativePiece(piece.source_index, entity, piece.connector_role))
     if matched != 2:
         raise _station_split_error("端边斜率校正节点没有唯一连接两条原生 LINE。")
     return tuple(moved)
@@ -463,9 +509,7 @@ def _normalize_terminal_pair(
         piece
         for piece in pieces
         if piece.entity.dxftype() == "LINE"
-        and abs(
-            abs(float(piece.entity.dxf.end.y - piece.entity.dxf.start.y)) - height
-        )
+        and abs(abs(float(piece.entity.dxf.end.y - piece.entity.dxf.start.y)) - height)
         <= _DETAIL_TOLERANCE_MM
     )
     if len(candidates) != 2:
@@ -504,9 +548,70 @@ def _normalize_terminal_pair(
     )
 
 
+def _normalize_short_connectors(
+    pieces: tuple[_NativePiece, ...],
+) -> tuple[tuple[_NativePiece, ...], tuple[Vec3, ...]]:
+    result = list(pieces)
+    protected = [
+        point
+        for piece in result
+        if piece.connector_role == "preserve_lower"
+        for point in (Vec3(piece.entity.dxf.start), Vec3(piece.entity.dxf.end))
+    ]
+    collapse = tuple(piece for piece in result if piece.connector_role == "collapse")
+    for connector in collapse:
+        try:
+            connector_index = result.index(connector)
+        except ValueError:
+            continue
+        if connector.entity.dxftype() != "LINE":
+            raise PLSplitError("TRANSFORM_CONNECTOR", "制造短连接不是原生 LINE。")
+        connector_points = (
+            Vec3(connector.entity.dxf.start),
+            Vec3(connector.entity.dxf.end),
+        )
+        midpoint = (connector_points[0] + connector_points[1]) * 0.5
+        neighbours: list[tuple[int, str]] = []
+        for connector_point in connector_points:
+            matches: list[tuple[int, str]] = []
+            for piece_index, piece in enumerate(result):
+                if piece_index == connector_index or piece.entity.dxftype() != "LINE":
+                    continue
+                for attribute in ("start", "end"):
+                    point = Vec3(getattr(piece.entity.dxf, attribute))
+                    if point.distance(connector_point) <= _DETAIL_TOLERANCE_MM:
+                        matches.append((piece_index, attribute))
+            if len(matches) != 1:
+                raise PLSplitError(
+                    "TRANSFORM_CONNECTOR",
+                    "制造短连接无法唯一压缩为闭合轮廓节点。",
+                )
+            neighbours.append(matches[0])
+        if neighbours[0][0] == neighbours[1][0]:
+            raise PLSplitError(
+                "TRANSFORM_CONNECTOR",
+                "制造短连接两端不能连接同一条原生 LINE。",
+            )
+        for piece_index, attribute in neighbours:
+            piece = result[piece_index]
+            entity = piece.entity.copy()
+            setattr(entity.dxf, attribute, midpoint)
+            result[piece_index] = _NativePiece(
+                piece.source_index,
+                entity,
+                piece.connector_role,
+            )
+        result.pop(connector_index)
+        protected.append(midpoint)
+    return tuple(result), tuple(protected)
+
+
 def _merge_collinear_lines(
     first: DXFEntity,
     second: DXFEntity,
+    *,
+    protected_nodes: tuple[Vec3, ...] = (),
+    allow_detail_deviation: bool = False,
 ) -> DXFEntity | None:
     if first.dxftype() != "LINE" or second.dxftype() != "LINE":
         return None
@@ -526,6 +631,11 @@ def _merge_collinear_lines(
         return None
     first_index, second_index = matches[0]
     shared = first_points[first_index]
+    if any(
+        Vec3(shared).distance(protected) <= _DETAIL_TOLERANCE_MM
+        for protected in protected_nodes
+    ):
+        return None
     first_outer = first_points[1 - first_index]
     second_outer = second_points[1 - second_index]
     first_vector = (
@@ -542,7 +652,20 @@ def _merge_collinear_lines(
         return None
     cross = abs(first_vector[0] * second_vector[1] - first_vector[1] * second_vector[0])
     if cross > _DIMENSION_TOLERANCE_MM * min(first_length, second_length):
-        return None
+        if not allow_detail_deviation:
+            return None
+        chord = (
+            float(second_outer.x - first_outer.x),
+            float(second_outer.y - first_outer.y),
+        )
+        chord_length = hypot(*chord)
+        if chord_length <= _NUMERIC_EPSILON:
+            return None
+        deviation = (
+            abs(first_vector[0] * chord[1] - first_vector[1] * chord[0]) / chord_length
+        )
+        if deviation > _DETAIL_TOLERANCE_MM:
+            return None
     if first_vector[0] * second_vector[0] + first_vector[1] * second_vector[1] <= 0.0:
         return None
     merged = first.copy()
@@ -553,19 +676,66 @@ def _merge_collinear_lines(
 
 def _coalesce_output_lines(
     pieces: tuple[_NativePiece, ...],
+    *,
+    protected_nodes: tuple[Vec3, ...] = (),
 ) -> tuple[_NativePiece, ...]:
     result = list(pieces)
+    min_x, _, max_x, _ = _outline_bounds(tuple(piece.entity for piece in pieces))
     while True:
         merged_pair: tuple[int, int, _NativePiece] | None = None
         for first_index, first in enumerate(result):
             for second_index in range(first_index + 1, len(result)):
                 second = result[second_index]
-                merged = _merge_collinear_lines(first.entity, second.entity)
+                endpoints = (
+                    (
+                        Vec3(first.entity.dxf.start),
+                        Vec3(first.entity.dxf.end),
+                        Vec3(second.entity.dxf.start),
+                        Vec3(second.entity.dxf.end),
+                    )
+                    if first.entity.dxftype() == second.entity.dxftype() == "LINE"
+                    else ()
+                )
+                touches_terminal = any(
+                    abs(point.x - min_x) <= _DETAIL_TOLERANCE_MM
+                    or abs(point.x - max_x) <= _DETAIL_TOLERANCE_MM
+                    for point in endpoints
+                )
+                merged = _merge_collinear_lines(
+                    first.entity,
+                    second.entity,
+                    protected_nodes=protected_nodes,
+                )
+                relaxed_terminal_merge = False
+                if (
+                    merged is None
+                    and touches_terminal
+                    and first.source_index != second.source_index
+                    and first.connector_role != "terminal_coalesced"
+                    and second.connector_role != "terminal_coalesced"
+                ):
+                    merged = _merge_collinear_lines(
+                        first.entity,
+                        second.entity,
+                        protected_nodes=protected_nodes,
+                        allow_detail_deviation=True,
+                    )
+                    relaxed_terminal_merge = merged is not None
                 if merged is not None:
                     merged_pair = (
                         first_index,
                         second_index,
-                        _NativePiece(first.source_index, merged),
+                        _NativePiece(
+                            first.source_index,
+                            merged,
+                            (
+                                "terminal_coalesced"
+                                if relaxed_terminal_merge
+                                or first.connector_role == "terminal_coalesced"
+                                or second.connector_role == "terminal_coalesced"
+                                else first.connector_role
+                            ),
+                        ),
                     )
                     break
             if merged_pair is not None:
@@ -651,9 +821,10 @@ def _developed_intervals(
         abs(upper_growth - downstream_shift),
         abs(lower_growth - downstream_shift),
     )
-    if max(growth_errors) > _DETAIL_TOLERANCE_MM or min(
-        growth_errors
-    ) > _DIMENSION_TOLERANCE_MM:
+    if (
+        max(growth_errors) > _DETAIL_TOLERANCE_MM
+        or min(growth_errors) > _DIMENSION_TOLERANCE_MM
+    ):
         raise PLSplitError("TRANSFORM_INTERVAL", "承载纵向区间没有完整吸收总展开增量。")
     return tuple(result)
 
@@ -688,10 +859,23 @@ def transform_outline(
     if longitudinal.selection_reason == "uniform_projection_fallback":
         try:
             boundary_pieces = canonical_boundary_pieces(source)
+            connector_roles = _short_connector_roles(
+                boundary_pieces,
+                min_y=source_min_y,
+                max_y=source_max_y,
+            )
+            native_boundary = tuple(
+                _NativePiece(piece.source_index, piece.entity, role)
+                for piece, role in zip(
+                    boundary_pieces,
+                    connector_roles,
+                    strict=True,
+                )
+            )
         except PLSplitError as error:
             if error.code != "LONGITUDINAL_TOPOLOGY":
                 raise
-            boundary_pieces = tuple(
+            native_boundary = tuple(
                 _NativePiece(source_index, entity)
                 for source_index, entity in enumerate(source)
             )
@@ -702,34 +886,44 @@ def transform_outline(
             Matrix44.translate(anchor, 0.0, 0.0),
         )
         log, transformed = copies(
-            tuple(piece.entity for piece in boundary_pieces),
+            tuple(piece.entity for piece in native_boundary),
             matrix,
         )
-        if len(log) or len(transformed) != len(boundary_pieces):
+        if len(log) or len(transformed) != len(native_boundary):
             messages = "; ".join(log.messages())
             raise PLSplitError(
                 "TRANSFORM_FAILED",
                 f"主视图原生实体无法完整执行0.1 mm内等比拉伸。{messages}",
             )
+        uniform_pieces = tuple(
+            _NativePiece(piece.source_index, entity, piece.connector_role)
+            for piece, entity in zip(native_boundary, transformed, strict=True)
+        )
+        uniform_pieces, protected_nodes = _normalize_short_connectors(uniform_pieces)
         transformed = tuple(
             piece.entity
             for piece in _coalesce_output_lines(
-                tuple(
-                    _NativePiece(piece.source_index, entity)
-                    for piece, entity in zip(
-                        boundary_pieces, transformed, strict=True
-                    )
-                )
+                uniform_pieces,
+                protected_nodes=protected_nodes,
             )
         )
         upper_terminal_correction = 0.0
         lower_terminal_correction = 0.0
     else:
         boundary_pieces = canonical_boundary_pieces(source)
+        connector_roles = _short_connector_roles(
+            boundary_pieces,
+            min_y=source_min_y,
+            max_y=source_max_y,
+        )
         station_values = _source_station_values(longitudinal, len(source))
         pieces = tuple(
-            _NativePiece(boundary_piece.source_index, piece)
-            for boundary_piece in boundary_pieces
+            _NativePiece(boundary_piece.source_index, piece, connector_role)
+            for boundary_piece, connector_role in zip(
+                boundary_pieces,
+                connector_roles,
+                strict=True,
+            )
             for piece in _split_native_entity(
                 boundary_piece.entity,
                 station_values[boundary_piece.source_index],
@@ -749,10 +943,12 @@ def transform_outline(
         grouped, upper_terminal_correction, lower_terminal_correction = (
             _normalize_terminal_pair(grouped, longitudinal)
         )
+        grouped, protected_nodes = _normalize_short_connectors(grouped)
         transformed = tuple(
             piece.entity
             for piece in _coalesce_output_lines(
-                grouped
+                grouped,
+                protected_nodes=protected_nodes,
             )
         )
     validate_closed_outline(transformed)

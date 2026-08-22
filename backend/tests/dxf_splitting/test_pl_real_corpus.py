@@ -77,9 +77,7 @@ def _terminal_directions(
             dx = -dx
             dy = -dy
         length = hypot(dx, dy)
-        terminals.append(
-            ((float(start.x) + float(end.x)) / 2.0, (dx / length, dy / length))
-        )
+        terminals.append(((float(start.x) + float(end.x)) / 2.0, (dx / length, dy / length)))
     assert len(terminals) == 2
     return tuple(direction for _, direction in sorted(terminals))
 
@@ -177,6 +175,17 @@ def test_all_21_real_parts_share_the_carrier_unfolding_contract(tmp_path: Path) 
 
     professional = ezdxf.readfile(reference_dir / "z2-cb-79.dxf")
     generated = ezdxf.readfile(items_by_part["z2-cb-79"]["output"]["path"])
+    generated_plate = tuple(
+        entity for entity in generated.modelspace() if entity.dxf.layer == "PLATE_CUT"
+    )
+    generated_lines = tuple(entity for entity in generated_plate if entity.dxftype() == "LINE")
+    assert len(generated_lines) == 14
+    assert not any(entity.dxftype() == "POINT" for entity in generated_plate)
+    assert all(entity.dxf.start.distance(entity.dxf.end) > 0.0 for entity in generated_lines)
+    assert (
+        sum(0.49 <= entity.dxf.start.distance(entity.dxf.end) <= 0.51 for entity in generated_lines)
+        == 1
+    )
     expected = _terminal_directions(tuple(professional.modelspace().query("LINE")))
     actual = _terminal_directions(tuple(generated.modelspace().query("LINE")))
     for actual_direction, expected_direction in zip(actual, expected, strict=True):
