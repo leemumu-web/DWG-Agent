@@ -63,6 +63,27 @@ def _line_outline(
     return entities, Polygon(points)
 
 
+def _fragmented_rectangle() -> tuple[tuple[DXFEntity, ...], Polygon]:
+    document = ezdxf.new()
+    modelspace = document.modelspace()
+    courses = (
+        ((0.0, 350.0), (800.0, 350.0)),
+        ((800.0, 350.0), (1000.0, 350.0)),
+        ((1000.0, 350.0), (1000.0, 0.0)),
+        ((1000.0, 0.0), (800.0, 0.0)),
+        ((800.0, 0.0), (0.0, 0.0)),
+        ((0.0, 0.0), (0.0, 350.0)),
+    )
+    entities = tuple(
+        modelspace.add_line(start, end, dxfattribs={"layer": "Part"})
+        for start, end in courses
+    )
+    polygon = Polygon(
+        ((0.0, 0.0), (1000.0, 0.0), (1000.0, 350.0), (0.0, 350.0))
+    )
+    return entities, polygon
+
+
 def _paired_outline(
     upper: tuple[tuple[float, float], ...],
     lower: tuple[tuple[float, float], ...],
@@ -451,6 +472,28 @@ def test_slanted_end_station_does_not_remain_as_an_output_line_split() -> None:
         )
     )
     assert actual.symmetric_difference(expected).area <= 0.1
+
+
+def test_cross_source_collinear_courses_are_one_output_line() -> None:
+    entities, polygon = _fragmented_rectangle()
+    proof = analyze_longitudinal_outline(entities, polygon, thickness_mm=35.0)
+
+    transformed, metrics = transform_outline(
+        entities,
+        longitudinal=proof,
+        projection_length_mm=1000.0,
+        k_length_mm=1100.0,
+        bom_length_mm=1100.0,
+        anchor_x_mm=0.0,
+    )
+
+    assert metrics.target_length_mm == pytest.approx(1100.0)
+    assert tuple(entity.dxftype() for entity in transformed) == ("LINE",) * 4
+    actual = validate_closed_outline(transformed)
+    expected = Polygon(
+        ((0.0, 0.0), (1100.0, 0.0), (1100.0, 350.0), (0.0, 350.0))
+    )
+    assert actual.symmetric_difference(expected).area <= 0.001
 
 
 def test_q7_piecewise_transform_grows_only_the_carrier_interval() -> None:

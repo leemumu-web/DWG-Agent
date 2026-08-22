@@ -3,11 +3,13 @@ from __future__ import annotations
 import json
 import os
 from decimal import ROUND_CEILING, Decimal
+from math import hypot
 from pathlib import Path
 
 import ezdxf
 import pytest
 from ezdxf import bbox
+from ezdxf.entities import DXFEntity
 from steel_dxf_split.pl import split_pl
 
 EXPECTED_CARRIER_POSITION = {
@@ -51,6 +53,35 @@ def _real_corpus_paths() -> tuple[Path, Path]:
     if not source_value or not reference_value:
         pytest.skip("set PL_REAL_SOURCE_DXF and PL_REAL_REFERENCE_DIR to run the 21-part PL corpus")
     return Path(source_value), Path(reference_value)
+
+
+def _terminal_directions(
+    entities: tuple[DXFEntity, ...],
+) -> tuple[tuple[float, float], ...]:
+    lines = tuple(entity for entity in entities if entity.dxftype() == "LINE")
+    points = tuple(
+        (float(point.x), float(point.y))
+        for entity in lines
+        for point in (entity.dxf.start, entity.dxf.end)
+    )
+    height = max(point[1] for point in points) - min(point[1] for point in points)
+    terminals: list[tuple[float, tuple[float, float]]] = []
+    for entity in lines:
+        start = entity.dxf.start
+        end = entity.dxf.end
+        dx = float(end.x - start.x)
+        dy = float(end.y - start.y)
+        if abs(dy) < height - 0.1:
+            continue
+        if dy < 0.0:
+            dx = -dx
+            dy = -dy
+        length = hypot(dx, dy)
+        terminals.append(
+            ((float(start.x) + float(end.x)) / 2.0, (dx / length, dy / length))
+        )
+    assert len(terminals) == 2
+    return tuple(direction for _, direction in sorted(terminals))
 
 
 def test_all_21_real_parts_share_the_carrier_unfolding_contract(tmp_path: Path) -> None:
@@ -139,3 +170,10 @@ def test_all_21_real_parts_share_the_carrier_unfolding_contract(tmp_path: Path) 
     assert q7_lengths["target_mm"] == pytest.approx(1162.2)
     assert q7_lengths["total_extension_mm"] == pytest.approx(8.134386, abs=0.000001)
     assert q7_lengths["total_extension_mm"] != pytest.approx(10.2)
+
+    professional = ezdxf.readfile(reference_dir / "z2-cb-79.dxf")
+    generated = ezdxf.readfile(items_by_part["z2-cb-79"]["output"]["path"])
+    expected = _terminal_directions(tuple(professional.modelspace().query("LINE")))
+    actual = _terminal_directions(tuple(generated.modelspace().query("LINE")))
+    for actual_direction, expected_direction in zip(actual, expected, strict=True):
+        assert actual_direction == pytest.approx(expected_direction, abs=1e-6)
