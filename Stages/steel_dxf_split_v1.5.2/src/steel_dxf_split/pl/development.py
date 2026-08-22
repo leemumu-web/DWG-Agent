@@ -543,6 +543,8 @@ def _merge_collinear_lines(
     cross = abs(first_vector[0] * second_vector[1] - first_vector[1] * second_vector[0])
     if cross > _DIMENSION_TOLERANCE_MM * min(first_length, second_length):
         return None
+    if first_vector[0] * second_vector[0] + first_vector[1] * second_vector[1] <= 0.0:
+        return None
     merged = first.copy()
     merged.dxf.start = first_outer
     merged.dxf.end = second_outer
@@ -684,6 +686,15 @@ def transform_outline(
     upper_scale = (upper_span + target.total_extension_mm) / upper_span
     lower_scale = (lower_span + target.total_extension_mm) / lower_span
     if longitudinal.selection_reason == "uniform_projection_fallback":
+        try:
+            boundary_pieces = canonical_boundary_pieces(source)
+        except PLSplitError as error:
+            if error.code != "LONGITUDINAL_TOPOLOGY":
+                raise
+            boundary_pieces = tuple(
+                _NativePiece(source_index, entity)
+                for source_index, entity in enumerate(source)
+            )
         scale = target.target_length_mm / target.projection_length_mm
         matrix = Matrix44.chain(
             Matrix44.translate(-anchor, 0.0, 0.0),
@@ -691,16 +702,26 @@ def transform_outline(
             Matrix44.translate(anchor, 0.0, 0.0),
         )
         log, transformed = copies(
-            source,
+            tuple(piece.entity for piece in boundary_pieces),
             matrix,
         )
-        if len(log) or len(transformed) != len(source):
+        if len(log) or len(transformed) != len(boundary_pieces):
             messages = "; ".join(log.messages())
             raise PLSplitError(
                 "TRANSFORM_FAILED",
                 f"主视图原生实体无法完整执行0.1 mm内等比拉伸。{messages}",
             )
-        transformed = tuple(transformed)
+        transformed = tuple(
+            piece.entity
+            for piece in _coalesce_output_lines(
+                tuple(
+                    _NativePiece(piece.source_index, entity)
+                    for piece, entity in zip(
+                        boundary_pieces, transformed, strict=True
+                    )
+                )
+            )
+        )
         upper_terminal_correction = 0.0
         lower_terminal_correction = 0.0
     else:

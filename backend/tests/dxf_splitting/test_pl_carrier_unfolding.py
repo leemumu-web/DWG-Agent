@@ -17,7 +17,12 @@ from steel_dxf_split.pl.contracts import (
     SectionProof,
     StationBand,
 )
-from steel_dxf_split.pl.development import calculate_target, ceil_tenth_mm, transform_outline
+from steel_dxf_split.pl.development import (
+    _merge_collinear_lines,
+    calculate_target,
+    ceil_tenth_mm,
+    transform_outline,
+)
 from steel_dxf_split.pl.geometry import flatten_entity, validate_closed_outline
 from steel_dxf_split.pl.longitudinal import (
     analyze_longitudinal_outline,
@@ -494,6 +499,59 @@ def test_cross_source_collinear_courses_are_one_output_line() -> None:
         ((0.0, 0.0), (1100.0, 0.0), (1100.0, 350.0), (0.0, 350.0))
     )
     assert actual.symmetric_difference(expected).area <= 0.001
+
+
+def test_uniform_projection_fallback_coalesces_cross_source_courses() -> None:
+    entities, polygon = _fragmented_rectangle()
+    proof = analyze_longitudinal_outline(entities, polygon, thickness_mm=35.0)
+
+    transformed, metrics = transform_outline(
+        entities,
+        longitudinal=replace(proof, selection_reason="uniform_projection_fallback"),
+        projection_length_mm=1000.0,
+        k_length_mm=1000.0,
+        bom_length_mm=1000.0,
+        anchor_x_mm=0.0,
+    )
+
+    assert metrics.target_length_mm == pytest.approx(1000.0)
+    assert tuple(entity.dxftype() for entity in transformed) == ("LINE",) * 4
+    actual = validate_closed_outline(transformed)
+    assert actual.symmetric_difference(polygon).area <= 0.001
+
+
+def test_uniform_projection_fallback_removes_contained_duplicate_line() -> None:
+    entities, polygon = _line_outline(
+        ((0.0, 0.0), (1000.0, 0.0), (1000.0, 350.0), (0.0, 350.0))
+    )
+    duplicate = entities[0].copy()
+    duplicate.dxf.start = (800.0, 0.0)
+    proof = analyze_longitudinal_outline(
+        (*entities, duplicate), polygon, thickness_mm=35.0
+    )
+
+    transformed, _ = transform_outline(
+        (*entities, duplicate),
+        longitudinal=replace(proof, selection_reason="uniform_projection_fallback"),
+        projection_length_mm=1000.0,
+        k_length_mm=1000.0,
+        bom_length_mm=1000.0,
+        anchor_x_mm=0.0,
+    )
+
+    assert tuple(entity.dxftype() for entity in transformed) == ("LINE",) * 4
+    actual = validate_closed_outline(transformed)
+    assert actual.symmetric_difference(polygon).area <= 0.001
+
+
+def test_contained_collinear_overlap_is_not_merged_as_adjacent_courses() -> None:
+    entities, _ = _line_outline(
+        ((0.0, 0.0), (1000.0, 0.0), (1000.0, 350.0), (0.0, 350.0))
+    )
+    contained = entities[0].copy()
+    contained.dxf.start = (800.0, 0.0)
+
+    assert _merge_collinear_lines(entities[0], contained) is None
 
 
 def test_q7_piecewise_transform_grows_only_the_carrier_interval() -> None:

@@ -9,6 +9,7 @@ import ezdxf
 import pytest
 from ezdxf import bbox
 from steel_dxf_split.pl import split_pl
+from steel_dxf_split.pl.development import _merge_collinear_lines
 from steel_dxf_split.pl.geometry import _proved_components
 
 
@@ -59,6 +60,14 @@ def test_all_paired_pl_sources_match_the_professional_result_contract(
         assert len(output_components) >= len(reference_loops)
 
         output_main = max(output_components, key=lambda component: component.polygon.area)
+        output_main_entities = tuple(
+            segment.entity for segment in output_main.segments
+        )
+        assert not any(
+            _merge_collinear_lines(first, second) is not None
+            for index, first in enumerate(output_main_entities)
+            for second in output_main_entities[index + 1 :]
+        )
         reference_main = max(
             reference_loops,
             key=lambda entity: (
