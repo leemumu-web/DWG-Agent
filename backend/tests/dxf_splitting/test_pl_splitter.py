@@ -298,9 +298,10 @@ def _save_geometry_source(
             ((0.0, 500.0), (399.0, 500.0), (399.0, 800.0), (0.0, 800.0)),
         )
     if include_hole:
-        _add_closed_polygon(
-            layout,
-            ((100.0, 100.0), (120.0, 100.0), (120.0, 120.0), (100.0, 120.0)),
+        layout.add_circle(
+            (110.0, 110.0),
+            10.0,
+            dxfattribs={"layer": "Bolt"},
         )
     if include_section:
         _add_closed_polygon(
@@ -364,7 +365,7 @@ def test_section_area_over_thickness_handles_a_sloped_end_cap(tmp_path: Path) ->
     assert section.k_length_mm == pytest.approx(395.0)
 
 
-def test_main_view_hole_is_rejected_until_hole_development_is_defined(
+def test_main_view_hole_is_retained_as_a_cutout_group(
     tmp_path: Path,
 ) -> None:
     geometry = importlib.import_module("steel_dxf_split.pl.geometry")
@@ -372,10 +373,26 @@ def test_main_view_hole_is_rejected_until_hole_development_is_defined(
     _save_geometry_source(drawing, include_hole=True)
     context, metadata = _load_geometry_context(drawing)
 
-    with pytest.raises(PLSplitError) as error:
-        geometry.analyze_geometry(context, metadata)
+    outline, _ = geometry.analyze_geometry(context, metadata)
 
-    assert error.value.code == "MAIN_VIEW_HAS_HOLES"
+    assert len(outline.cutout_entity_groups) == 1
+    assert len(outline.cutout_entity_groups[0]) == 2
+
+
+def test_bolt_cutout_is_scaled_and_written_with_the_pl_outline(
+    tmp_path: Path,
+) -> None:
+    compiler = importlib.import_module("steel_dxf_split.pl.compiler")
+    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    drawing = tmp_path / "bolt-cutout.dxf"
+    _save_geometry_source(drawing, include_hole=True)
+
+    batch = compiler.split_pl(drawing, tmp_path / "results")
+
+    assert batch.success_count == 1
+    saved = ezdxf.readfile(tmp_path / "results" / "q6-b-62.dxf")
+    plate_cut = tuple(saved.modelspace().query('*[layer=="PLATE_CUT"]'))
+    assert len(geometry._proved_components(plate_cut)) == 2
 
 
 def test_two_equally_credible_main_views_are_rejected(tmp_path: Path) -> None:
@@ -426,6 +443,68 @@ def test_non_x_main_axis_is_rejected(tmp_path: Path) -> None:
         geometry.analyze_geometry(context, metadata)
 
     assert error.value.code == "MAIN_VIEW_MISSING"
+
+
+def test_x_axis_main_can_be_shorter_than_width_and_use_nominal_width_rounding(
+    tmp_path: Path,
+) -> None:
+    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    drawing = tmp_path / "short-wide-main.dxf"
+    document = _new_source_document()
+    layout = document.modelspace()
+    _add_metadata(
+        layout,
+        part_number="anonymous-short-wide",
+        specification="PL25*500",
+        bom_length="225",
+        y=-900.0,
+    )
+    _add_closed_polygon(
+        layout,
+        ((0.0, 0.0), (225.0, 0.0), (225.0, 500.8), (0.0, 500.8)),
+    )
+    _add_closed_polygon(
+        layout,
+        ((0.0, -500.0), (225.0, -500.0), (225.0, -475.0), (0.0, -475.0)),
+    )
+    document.saveas(drawing)
+    context, metadata = _load_geometry_context(drawing)
+
+    outline, section = geometry.analyze_geometry(context, metadata)
+
+    assert outline.projection_length_mm == pytest.approx(225.0)
+    assert outline.width_mm == pytest.approx(500.8)
+    assert section.k_length_mm == pytest.approx(225.0)
+
+
+def test_translated_equivalent_sections_are_one_geometric_proof(tmp_path: Path) -> None:
+    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    drawing = tmp_path / "equivalent-sections.dxf"
+    document = _new_source_document()
+    layout = document.modelspace()
+    _add_metadata(
+        layout,
+        part_number="anonymous-equivalent-sections",
+        specification="PL25*300",
+        bom_length="600",
+        y=-900.0,
+    )
+    _add_closed_polygon(
+        layout,
+        ((0.0, 0.0), (600.0, 0.0), (600.0, 300.0), (0.0, 300.0)),
+    )
+    for y in (-500.0, -700.0):
+        _add_closed_polygon(
+            layout,
+            ((0.0, y), (600.0, y), (600.0, y + 25.0), (0.0, y + 25.0)),
+        )
+    document.saveas(drawing)
+    context, metadata = _load_geometry_context(drawing)
+
+    _, section = geometry.analyze_geometry(context, metadata)
+
+    assert section.k_length_mm == pytest.approx(600.0)
+    assert section.candidate_count == 2
 
 
 def test_sub_tolerance_boundary_noise_is_not_emitted_as_a_zero_length_cut(
@@ -576,7 +655,7 @@ def test_saved_output_validation_rejects_non_manufacturing_entities(
     assert error.value.code == "OUTPUT_ENTITY_CONTRACT"
 
 
-def test_writer_rejects_a_pl_label_that_cannot_retain_thirty_mm(
+def test_writer_shrinks_a_pl_label_that_cannot_retain_thirty_mm(
     tmp_path: Path,
 ) -> None:
     writer = importlib.import_module("steel_dxf_split.pl.writer")
@@ -592,11 +671,13 @@ def test_writer_rejects_a_pl_label_that_cannot_retain_thirty_mm(
         ),
     )
 
-    with pytest.raises(PLSplitError) as error:
-        writer.write_pl_dxf(developed, output)
+    writer.write_pl_dxf(developed, output)
 
-    assert error.value.code == "PL_LABEL_DOES_NOT_FIT"
-    assert not output.exists()
+    saved = ezdxf.readfile(output)
+    labels = list(saved.modelspace().query('TEXT[layer=="PART_LABEL"]'))
+    assert len(labels) == 1
+    assert labels[0].dxf.text == "p=part-number-that-cannot-fit-at-thirty-millimeters"
+    assert labels[0].dxf.height < 30.0
 
 
 def _add_sheet_geometry(

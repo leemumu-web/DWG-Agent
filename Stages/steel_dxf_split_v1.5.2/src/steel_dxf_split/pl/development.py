@@ -592,32 +592,51 @@ def transform_outline(
     )
     upper_scale = (upper_span + target.total_extension_mm) / upper_span
     lower_scale = (lower_span + target.total_extension_mm) / lower_span
-    station_values = _source_station_values(longitudinal, len(source))
-    boundary_pieces = canonical_boundary_pieces(source)
-    pieces = tuple(
-        _NativePiece(boundary_piece.source_index, piece)
-        for boundary_piece in boundary_pieces
-        for piece in _split_native_entity(
-            boundary_piece.entity,
-            station_values[boundary_piece.source_index],
+    if longitudinal.selection_reason == "uniform_projection_fallback":
+        scale = target.target_length_mm / target.projection_length_mm
+        matrix = Matrix44.chain(
+            Matrix44.translate(-anchor, 0.0, 0.0),
+            Matrix44.scale(scale, 1.0, 1.0),
+            Matrix44.translate(anchor, 0.0, 0.0),
         )
-    )
-    transformed = tuple(
-        piece.entity
-        for piece in _coalesce_output_lines(
-            _transform_groups(
-                pieces,
-                longitudinal,
-                first_carrier=first,
-                last_carrier=last,
-                upper_left=upper_left,
-                lower_left=lower_left,
-                upper_scale=upper_scale,
-                lower_scale=lower_scale,
-                downstream_shift=target.total_extension_mm,
+        log, transformed = copies(
+            source,
+            matrix,
+        )
+        if len(log) or len(transformed) != len(source):
+            messages = "; ".join(log.messages())
+            raise PLSplitError(
+                "TRANSFORM_FAILED",
+                f"主视图原生实体无法完整执行0.1 mm内等比拉伸。{messages}",
+            )
+        transformed = tuple(transformed)
+    else:
+        boundary_pieces = canonical_boundary_pieces(source)
+        station_values = _source_station_values(longitudinal, len(source))
+        pieces = tuple(
+            _NativePiece(boundary_piece.source_index, piece)
+            for boundary_piece in boundary_pieces
+            for piece in _split_native_entity(
+                boundary_piece.entity,
+                station_values[boundary_piece.source_index],
             )
         )
-    )
+        transformed = tuple(
+            piece.entity
+            for piece in _coalesce_output_lines(
+                _transform_groups(
+                    pieces,
+                    longitudinal,
+                    first_carrier=first,
+                    last_carrier=last,
+                    upper_left=upper_left,
+                    lower_left=lower_left,
+                    upper_scale=upper_scale,
+                    lower_scale=lower_scale,
+                    downstream_shift=target.total_extension_mm,
+                )
+            )
+        )
     validate_closed_outline(transformed)
     output_min_x, output_min_y, output_max_x, output_max_y = _outline_bounds(
         transformed

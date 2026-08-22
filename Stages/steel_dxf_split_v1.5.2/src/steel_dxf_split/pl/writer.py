@@ -10,12 +10,15 @@ from ezdxf import bbox
 from ezdxf.entities import DXFEntity
 from ezdxf.enums import TextEntityAlignment
 from ezdxf.math import ConstructionEllipse
+from shapely.geometry import LineString
+from shapely.ops import polylabel, unary_union
 
 from steel_dxf_split.dxf_io import load_document
 from steel_dxf_split.part_mark_layout import (
     PartMarkLayoutError,
     PartMarkTarget,
     layout_part_marks,
+    part_mark_envelope,
 )
 
 from .contracts import DevelopedPlate, PLSplitError, PLWriteResult
@@ -24,6 +27,7 @@ from .geometry import flatten_entity, validate_closed_outline
 _WINDOWS_CJK_DXF_FONT = "simsun.ttc"
 _DIMENSION_TOLERANCE_MM = 0.001
 PL_LABEL_HEIGHT_MM = 30.0
+PL_LABEL_HEIGHT_OPTIONS_MM = (30.0, 25.0, 20.0, 15.0, 10.0)
 
 
 def _ensure_layers(document: ezdxf.document.Drawing) -> None:
@@ -601,20 +605,69 @@ def validate_saved_pl_dxf(
             "OUTPUT_ENTITY_CONTRACT",
             "结果 PLATE_CUT 含不支持的原生实体类型。",
         )
+    expected_cutout_polygons = tuple(
+        validate_closed_outline(group)
+        for group in developed.transformed_cutout_entity_groups
+    )
+    cutout_zones = tuple(
+        polygon.boundary.buffer(0.1, cap_style="flat", join_style="mitre")
+        for polygon in expected_cutout_polygons
+    )
+    outer_entities_list = []
+    saved_cutout_groups: list[list[DXFEntity]] = [[] for _ in expected_cutout_polygons]
+    for entity in plate_entities:
+        line = LineString(flatten_entity(entity))
+        matches = tuple(
+            index for index, zone in enumerate(cutout_zones) if zone.covers(line)
+        )
+        if len(matches) > 1:
+            raise PLSplitError("OUTPUT_ENTITY_CONTRACT", "结果PL孔槽边界归属不唯一。")
+        if matches:
+            saved_cutout_groups[matches[0]].append(entity)
+        else:
+            outer_entities_list.append(entity)
+    outer_entities = tuple(outer_entities_list)
+    cutout_polygons = tuple(
+        validate_closed_outline(tuple(group)) for group in saved_cutout_groups
+    )
+    if any(
+        saved.symmetric_difference(expected).area > 0.01
+        for saved, expected in zip(
+            cutout_polygons,
+            expected_cutout_polygons,
+            strict=True,
+        )
+    ):
+        raise PLSplitError("OUTPUT_ENTITY_CONTRACT", "结果PL孔槽与预期边界不一致。")
     expected_label = f"p={developed.metadata.part_number}"
     if (
         len(label_entities) != 1
         or label_entities[0].dxftype() != "TEXT"
         or label_entities[0].dxf.text != expected_label
         or label_entities[0].dxf.style != "SplitChinese"
-        or abs(float(label_entities[0].dxf.height) - PL_LABEL_HEIGHT_MM) > 1e-9
+        or not any(
+            abs(float(label_entities[0].dxf.height) - height) <= 1e-9
+            for height in PL_LABEL_HEIGHT_OPTIONS_MM
+        )
     ):
         raise PLSplitError(
             "OUTPUT_LABEL_CONTRACT",
             f"结果必须只有一个 SplitChinese 标签 {expected_label}。",
         )
-    validate_closed_outline(plate_entities)
-    _validate_saved_intervals(plate_entities, developed)
+    saved_polygon = validate_closed_outline(outer_entities)
+    if any(
+        not saved_polygon.covers(cutout_polygon) for cutout_polygon in cutout_polygons
+    ):
+        raise PLSplitError("OUTPUT_ENTITY_CONTRACT", "结果PL孔槽超出外轮廓。")
+    if developed.longitudinal.selection_reason == "uniform_projection_fallback":
+        expected_polygon = validate_closed_outline(developed.transformed_entities)
+        if saved_polygon.symmetric_difference(expected_polygon).area > 0.01:
+            raise PLSplitError(
+                "OUTPUT_INTERVAL_CONTRACT",
+                "0.1 mm内等比拉伸结果与保存后的原生边界不一致。",
+            )
+    else:
+        _validate_saved_intervals(outer_entities, developed)
     native_bounds = bbox.extents(plate_entities, fast=False)
     if not native_bounds.has_data:
         raise PLSplitError("OUTPUT_ENTITY_CONTRACT", "结果 PLATE_CUT 没有有效范围。")
@@ -662,9 +715,24 @@ def write_pl_dxf(
         _manufacturing_clone(entity) for entity in developed.transformed_entities
     )
     developed_polygon = validate_closed_outline(manufacturing_entities)
+    manufacturing_cutout_groups = tuple(
+        tuple(_manufacturing_clone(entity) for entity in group)
+        for group in developed.transformed_cutout_entity_groups
+    )
+    cutout_polygons = tuple(
+        validate_closed_outline(group) for group in manufacturing_cutout_groups
+    )
     for entity in manufacturing_entities:
         modelspace.add_entity(entity)
+    for group in manufacturing_cutout_groups:
+        for entity in group:
+            modelspace.add_entity(entity)
     label = f"p={developed.metadata.part_number}"
+    material_polygon = developed_polygon
+    if cutout_polygons:
+        material_polygon = developed_polygon.difference(unary_union(cutout_polygons))
+    label_point: tuple[float, float] | None = None
+    label_height: float | None = None
     try:
         placement = layout_part_marks(
             (
@@ -672,26 +740,56 @@ def write_pl_dxf(
                     target_id=developed.metadata.part_number,
                     label=label,
                     outer_geometry=developed_polygon,
-                    material_geometry=developed_polygon,
+                    material_geometry=material_polygon,
+                    hole_count=len(cutout_polygons),
                 ),
             ),
             preferred_height_mm=PL_LABEL_HEIGHT_MM,
         )[0]
-    except PartMarkLayoutError as error:
+        label_point = placement.point
+        label_height = placement.height_mm
+    except PartMarkLayoutError:
+        pass
+    if label_point is None:
+        min_x, min_y, max_x, max_y = material_polygon.bounds
+        center = ((min_x + max_x) / 2.0, (min_y + max_y) / 2.0)
+        centroid = material_polygon.centroid
+        representative = material_polygon.representative_point()
+        point = polylabel(material_polygon, tolerance=0.1)
+        candidates = (
+            center,
+            (float(centroid.x), float(centroid.y)),
+            (float(representative.x), float(representative.y)),
+            (float(point.x), float(point.y)),
+            *(
+                (
+                    min_x + (max_x - min_x) * x_fraction,
+                    min_y + (max_y - min_y) * y_fraction,
+                )
+                for y_fraction in (0.25, 0.5, 0.75)
+                for x_fraction in (0.25, 0.5, 0.75)
+            ),
+        )
+        for height in PL_LABEL_HEIGHT_OPTIONS_MM[1:]:
+            for candidate in candidates:
+                if material_polygon.covers(
+                    part_mark_envelope(label, candidate, height)
+                ):
+                    label_point = candidate
+                    label_height = height
+                    break
+            if label_point is not None:
+                break
+    if label_point is None or label_height is None:
         raise PLSplitError(
             "PL_LABEL_DOES_NOT_FIT",
-            "30 mm零件标记无法完整放入板材区域。",
-        ) from error
-    if abs(placement.height_mm - PL_LABEL_HEIGHT_MM) > 1e-9:
-        raise PLSplitError(
-            "PL_LABEL_DOES_NOT_FIT",
-            "30 mm零件标记无法完整放入板材区域。",
+            "10 mm零件标记仍无法完整放入板材区域。",
         )
     modelspace.add_text(
         label,
-        height=placement.height_mm,
+        height=label_height,
         dxfattribs={"layer": "PART_LABEL", "style": style},
-    ).set_placement(placement.point, align=TextEntityAlignment.MIDDLE_CENTER)
+    ).set_placement(label_point, align=TextEntityAlignment.MIDDLE_CENTER)
     auditor = document.audit()
     if auditor.has_errors:
         raise PLSplitError(

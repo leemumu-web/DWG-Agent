@@ -1307,6 +1307,58 @@ def test_near_coincident_curves_are_not_approximately_deduplicated() -> None:
     assert error.value.code == "LONGITUDINAL_TOPOLOGY"
 
 
+def test_exact_duplicate_native_curve_is_deduplicated() -> None:
+    entities, polygon = _mixed_curve_outline()
+    duplicate = entities[0].copy()
+
+    pieces = canonical_boundary_pieces((*entities, duplicate))
+
+    assert sum(piece.entity.dxftype() == "ELLIPSE" for piece in pieces) == 1
+    proof = analyze_longitudinal_outline(
+        (*entities, duplicate),
+        polygon,
+        thickness_mm=50.0,
+    )
+    assert proof.carrier_interval_indices == (0,)
+
+
+def test_native_chamfered_end_chain_projects_its_own_station_events() -> None:
+    entities, polygon = _line_outline(
+        (
+            (0.0, 220.0),
+            (15.0, 235.0),
+            (694.4, 235.0),
+            (709.4, 220.0),
+            (709.4, 0.0),
+            (0.0, 0.0),
+        )
+    )
+
+    proof = analyze_longitudinal_outline(entities, polygon, thickness_mm=14.0)
+
+    stations = (
+        *(interval.left_station for interval in proof.intervals),
+        proof.intervals[-1].right_station,
+    )
+    assert tuple((station.upper_x_mm, station.lower_x_mm) for station in stations) == (
+        (0.0, 0.0),
+        (15.0, 15.0),
+        (694.4, 694.4),
+        (709.4, 709.4),
+    )
+    assert proof.carrier_interval_indices == (1,)
+
+
+def test_single_interval_triangle_is_its_own_carrier() -> None:
+    entities, polygon = _line_outline(((0.0, 500.0), (0.0, 0.0), (531.315, 0.0)))
+
+    proof = analyze_longitudinal_outline(entities, polygon, thickness_mm=30.0)
+
+    assert tuple(interval.index for interval in proof.intervals) == (0,)
+    assert proof.carrier_interval_indices == (0,)
+    assert proof.selection_reason == "unique_longest_body"
+
+
 def test_mixed_curve_and_overlapping_lines_preserve_native_provenance(
     tmp_path: Path,
 ) -> None:

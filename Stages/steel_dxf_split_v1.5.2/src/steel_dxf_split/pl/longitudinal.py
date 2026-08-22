@@ -132,6 +132,15 @@ def _source_handle(entity: DXFEntity) -> str:
     return str(entity.dxf.get("handle") or "virtual")
 
 
+def _native_curve_fingerprint(entity: DXFEntity) -> tuple[object, ...]:
+    points = tuple(
+        (round(point[0], 7), round(point[1], 7))
+        for point in flatten_entity(entity, FLATTEN_SAGITTA_MM)
+    )
+    reverse = tuple(reversed(points))
+    return entity.dxftype(), min(points, reverse)
+
+
 def _has_degree_two_endpoints(
     entities: tuple[DXFEntity, ...],
     tolerance_mm: float = TOPOLOGY_TOLERANCE_MM,
@@ -266,7 +275,17 @@ def canonical_boundary_pieces(
         )
         return originals
 
-    curves = tuple(piece for piece in originals if piece.entity.dxftype() != "LINE")
+    curves_list: list[BoundaryPiece] = []
+    seen_curves: set[tuple[object, ...]] = set()
+    for piece in originals:
+        if piece.entity.dxftype() == "LINE":
+            continue
+        fingerprint = _native_curve_fingerprint(piece.entity)
+        if fingerprint in seen_curves:
+            continue
+        seen_curves.add(fingerprint)
+        curves_list.append(piece)
+    curves = tuple(curves_list)
     indexed_lines = tuple(
         (index, cast(Line, entity))
         for index, entity in enumerate(entities)
@@ -1104,16 +1123,60 @@ def _classify_direct_end_events(
     upper: tuple[_SideEvent, ...],
     lower: tuple[_SideEvent, ...],
 ) -> tuple[tuple[_SideEvent, ...], tuple[_SideEvent, ...]]:
+    def event_positions(events: tuple[_SideEvent, ...]) -> dict[int, tuple[int, ...]]:
+        result: dict[int, list[int]] = {}
+        for index, event in enumerate(events):
+            for transition_id in (
+                event.correspondence_ids | event.direct_correspondence_ids
+            ):
+                result.setdefault(transition_id, []).append(index)
+        return {key: tuple(value) for key, value in result.items()}
+
+    upper_positions = event_positions(upper)
+    lower_positions = event_positions(lower)
     independent_upper: set[int] = set()
     independent_lower: set[int] = set()
-    for upper_index, upper_event in enumerate(upper[1:-1], start=1):
-        for lower_index, lower_event in enumerate(lower[1:-1], start=1):
-            if (
-                upper_event.direct_correspondence_ids
-                & lower_event.direct_correspondence_ids
-            ):
+
+    def unlinked_internal_events(events: tuple[_SideEvent, ...]) -> set[int]:
+        return {
+            index
+            for index, event in enumerate(events[1:-1], start=1)
+            if not event.correspondence_ids
+            and not event.direct_correspondence_ids
+            and len(event.source_entity_indices) > 1
+        }
+
+    upper_unlinked = unlinked_internal_events(upper)
+    lower_unlinked = unlinked_internal_events(lower)
+    if upper_unlinked and len(lower) == 2:
+        independent_upper.update(upper_unlinked)
+    elif lower_unlinked and len(upper) == 2:
+        independent_lower.update(lower_unlinked)
+
+    for transition_id in upper_positions.keys() & lower_positions.keys():
+        upper_indices = upper_positions[transition_id]
+        lower_indices = lower_positions[transition_id]
+        if len(upper_indices) != 1 or len(lower_indices) != 1:
+            continue
+        upper_index = upper_indices[0]
+        lower_index = lower_indices[0]
+        upper_internal = upper_index not in {0, len(upper) - 1}
+        lower_internal = lower_index not in {0, len(lower) - 1}
+        if upper_internal != lower_internal:
+            if upper_internal:
                 independent_upper.add(upper_index)
+            else:
                 independent_lower.add(lower_index)
+            continue
+        if (
+            upper_internal
+            and lower_internal
+            and transition_id
+            in upper[upper_index].direct_correspondence_ids
+            & lower[lower_index].direct_correspondence_ids
+        ):
+            independent_upper.add(upper_index)
+            independent_lower.add(lower_index)
 
     def classified(event: _SideEvent) -> _SideEvent:
         return replace(
@@ -1321,6 +1384,7 @@ def _close_terminal_direct_end_band(
         projected.projected_side != "upper"
         or not projected.direct_only_end_chain
         or endpoint.projected_side is not None
+        or not any(band.projected_side == "lower" for band in ordered[:-2])
     ):
         return ordered
     return (
@@ -1656,9 +1720,22 @@ def _consecutive_groups(indices: tuple[int, ...]) -> tuple[tuple[int, ...], ...]
 def select_carrier_zone(
     intervals: tuple[LongitudinalIntervalEvidence, ...],
 ) -> tuple[tuple[int, ...], str]:
+    if len(intervals) == 1:
+        return (0,), "unique_longest_body"
     body = tuple(interval for interval in intervals if not interval.is_end_feature)
     if not body:
-        raise PLSplitError("CARRIER_MISSING", "主视图没有可用纵向主体区间。")
+        ranked = sorted(
+            intervals,
+            key=lambda interval: (
+                -min(interval.upper_span_mm, interval.lower_span_mm),
+                interval.index,
+            ),
+        )
+        first = min(ranked[0].upper_span_mm, ranked[0].lower_span_mm)
+        second = min(ranked[1].upper_span_mm, ranked[1].lower_span_mm)
+        if first - second <= TOPOLOGY_TOLERANCE_MM:
+            raise PLSplitError("CARRIER_MISSING", "主视图没有唯一可用纵向区间。")
+        return (ranked[0].index,), "unique_longest_interval"
     turns = tuple(interval.index for interval in body if interval.is_turn_candidate)
     if turns:
         groups = _consecutive_groups(turns)
@@ -1719,4 +1796,38 @@ def analyze_longitudinal_outline(
         intervals=intervals,
         carrier_interval_indices=carrier,
         selection_reason=reason,
+    )
+
+
+def analyze_uniform_longitudinal_outline(
+    entities: tuple[DXFEntity, ...],
+    polygon: Polygon,
+) -> LongitudinalProof:
+    if not entities:
+        raise _topology_error("主视图没有可等比拉伸的原生边界。")
+    min_x, _, max_x, _ = polygon.bounds
+    if max_x - min_x <= TOPOLOGY_TOLERANCE_MM:
+        raise _topology_error("主视图没有形成可等比拉伸的上下纵向边界。")
+    indices = tuple(range(len(entities)))
+    left = StationBand(0, min_x, min_x, indices)
+    right = StationBand(1, max_x, max_x, indices)
+    source_handles = tuple(sorted({_source_handle(entity) for entity in entities}))
+    interval = LongitudinalIntervalEvidence(
+        index=0,
+        left_station=left,
+        right_station=right,
+        upper_entity_indices=indices,
+        lower_entity_indices=indices,
+        upper_span_mm=max_x - min_x,
+        lower_span_mm=max_x - min_x,
+        upper_delta_y_mm=0.0,
+        lower_delta_y_mm=0.0,
+        is_end_feature=False,
+        is_turn_candidate=False,
+        source_handles=source_handles,
+    )
+    return LongitudinalProof(
+        intervals=(interval,),
+        carrier_interval_indices=(0,),
+        selection_reason="uniform_projection_fallback",
     )

@@ -5,8 +5,9 @@ from math import dist, radians
 from typing import cast
 
 from ezdxf import bbox
-from ezdxf.entities import DXFEntity, Ellipse, Line
-from shapely.geometry import LineString, MultiPolygon, Polygon
+from ezdxf.entities import Arc, Circle, DXFEntity, Ellipse, Line
+from shapely.affinity import translate
+from shapely.geometry import LineString, MultiPolygon, Point, Polygon
 from shapely.ops import polygonize_full, unary_union
 
 from .contracts import (
@@ -20,6 +21,8 @@ from .contracts import (
 TOPOLOGY_TOLERANCE_MM = 0.1
 FLATTEN_SAGITTA_MM = 0.001
 BOUNDARY_TOLERANCE_MM = 0.05
+NOMINAL_WIDTH_TOLERANCE_MM = 1.0
+MAX_CONTAINED_CUTOUT_AREA_RATIO = 0.1
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,7 +185,9 @@ def _segments(
     return tuple(result)
 
 
-def _connected_components(segments: tuple[_Segment, ...]) -> tuple[tuple[_Segment, ...], ...]:
+def _connected_components(
+    segments: tuple[_Segment, ...],
+) -> tuple[tuple[_Segment, ...], ...]:
     groups = _UnionFind(len(segments))
     for index, segment in enumerate(segments):
         nodes = {segment.start_node, segment.end_node}
@@ -237,20 +242,55 @@ def _outer_entities(component: _Component) -> tuple[DXFEntity, ...]:
     for segment in component.segments:
         if segment.start_node == segment.end_node or segment.line.length <= 1e-9:
             continue
-        if not boundary_zone.covers(segment.line):
+        if segment.entity.dxftype() == "LINE":
+            boundary_part = (
+                segment.line
+                if boundary_zone.covers(segment.line)
+                else segment.line.intersection(component.polygon.boundary)
+            )
+            line_parts = (
+                (boundary_part,)
+                if isinstance(boundary_part, LineString)
+                else tuple(
+                    geometry
+                    for geometry in getattr(boundary_part, "geoms", ())
+                    if isinstance(geometry, LineString)
+                )
+            )
+            for line_part in line_parts:
+                if line_part.length <= 1e-9:
+                    continue
+                fingerprint = line_part.normalize().wkb_hex
+                if fingerprint in seen:
+                    continue
+                seen.add(fingerprint)
+                clone = segment.entity.copy()
+                clone.dxf.start = line_part.coords[0]
+                clone.dxf.end = line_part.coords[-1]
+                selected.append(clone)
             continue
-        fingerprint = segment.line.normalize().wkb_hex
-        if fingerprint in seen:
-            continue
-        seen.add(fingerprint)
-        clone = segment.entity.copy()
-        if clone.dxftype() == "LINE":
-            clone.dxf.start = segment.points[0]
-            clone.dxf.end = segment.points[-1]
-        selected.append(clone)
+        if boundary_zone.covers(segment.line):
+            fingerprint = segment.line.normalize().wkb_hex
+            if fingerprint in seen:
+                continue
+            seen.add(fingerprint)
+            selected.append(segment.entity.copy())
     if not selected:
         raise PLSplitError("MAIN_BOUNDARY_MISSING", "主视图外边界没有可追溯原生实体。")
     return tuple(selected)
+
+
+def _circle_arc_group(circle: Circle) -> tuple[DXFEntity, ...]:
+    attributes = {
+        "center": circle.dxf.center,
+        "radius": float(circle.dxf.radius),
+        "layer": "Part",
+        "extrusion": circle.dxf.extrusion,
+    }
+    return (
+        Arc.new(dxfattribs={**attributes, "start_angle": 0.0, "end_angle": 180.0}),
+        Arc.new(dxfattribs={**attributes, "start_angle": 180.0, "end_angle": 360.0}),
+    )
 
 
 def validate_closed_outline(
@@ -281,8 +321,8 @@ def analyze_geometry(
         if (
             component.polygon.is_valid
             and not len(component.polygon.interiors)
-            and abs(y_span - metadata.width_mm) <= TOPOLOGY_TOLERANCE_MM
-            and x_span > y_span + TOPOLOGY_TOLERANCE_MM
+            and abs(y_span - metadata.width_mm) <= NOMINAL_WIDTH_TOLERANCE_MM
+            and x_span > TOPOLOGY_TOLERANCE_MM
         ):
             main_candidates.append(component)
     if not main_candidates:
@@ -302,15 +342,40 @@ def analyze_geometry(
         if component is not main
         and main.polygon.contains(component.polygon.representative_point())
     ]
-    if contained:
-        raise PLSplitError(
-            "MAIN_VIEW_HAS_HOLES",
-            "主视图存在孔槽或内部闭合轮廓，当前 PL 规则不自动展开。",
-        )
+    cutout_groups = [
+        _outer_entities(component)
+        for component in contained
+        if component.polygon.area <= main.polygon.area * MAX_CONTAINED_CUTOUT_AREA_RATIO
+    ]
+    selected_centers: list[tuple[float, float]] = []
+    bolt_circles = sorted(
+        (
+            cast(Circle, entity)
+            for entity in context.entities
+            if entity.dxftype() == "CIRCLE" and entity.dxf.layer.casefold() == "bolt"
+        ),
+        key=lambda circle: -float(circle.dxf.radius),
+    )
+    for circle in bolt_circles:
+        center = Point(float(circle.dxf.center.x), float(circle.dxf.center.y))
+        circle_polygon = center.buffer(float(circle.dxf.radius), quad_segs=64)
+        if not main.polygon.covers(circle_polygon):
+            continue
+        if any(
+            dist((center.x, center.y), selected) <= TOPOLOGY_TOLERANCE_MM
+            for selected in selected_centers
+        ):
+            continue
+        selected_centers.append((float(center.x), float(center.y)))
+        cutout_groups.append(_circle_arc_group(circle))
     outer_entities = _outer_entities(main)
-    proved_outer = validate_closed_outline(outer_entities, tolerance_mm=TOPOLOGY_TOLERANCE_MM)
+    proved_outer = validate_closed_outline(
+        outer_entities, tolerance_mm=TOPOLOGY_TOLERANCE_MM
+    )
     if proved_outer.symmetric_difference(main.polygon).area > 0.01:
-        raise PLSplitError("MAIN_BOUNDARY_MISMATCH", "原生外边界与主视图材料区域不一致。")
+        raise PLSplitError(
+            "MAIN_BOUNDARY_MISMATCH", "原生外边界与主视图材料区域不一致。"
+        )
     native_bounds = bbox.extents(outer_entities, fast=False)
     if not native_bounds.has_data:
         raise PLSplitError("MAIN_BOUNDARY_MISSING", "主视图原生外边界没有有效范围。")
@@ -333,12 +398,27 @@ def analyze_geometry(
         ):
             section_candidates.append(component)
     if not section_candidates:
-        raise PLSplitError("SECTION_MISSING", "没有找到与主视图投影对应的闭合恒厚剖面。")
-    if len(section_candidates) != 1:
         raise PLSplitError(
-            "SECTION_AMBIGUOUS",
-            f"识别到 {len(section_candidates)} 个同等可信剖面。",
+            "SECTION_MISSING", "没有找到与主视图投影对应的闭合恒厚剖面。"
         )
+    if len(section_candidates) != 1:
+        normalized = tuple(
+            translate(
+                component.polygon,
+                xoff=-component.polygon.bounds[0],
+                yoff=-component.polygon.bounds[1],
+            )
+            for component in section_candidates
+        )
+        reference = normalized[0]
+        if any(
+            reference.symmetric_difference(candidate).area > 0.01
+            for candidate in normalized[1:]
+        ):
+            raise PLSplitError(
+                "SECTION_AMBIGUOUS",
+                f"识别到 {len(section_candidates)} 个同等可信剖面。",
+            )
     section = section_candidates[0]
     k_length = float(section.polygon.area / metadata.thickness_mm)
     if k_length <= 0.0:
@@ -349,8 +429,11 @@ def analyze_geometry(
         projection_length_mm=projection,
         width_mm=width,
         anchor_x_mm=float(min_x),
-        source_handles=tuple(_entity_handle(segment.entity) for segment in main.segments),
+        source_handles=tuple(
+            _entity_handle(segment.entity) for segment in main.segments
+        ),
         candidate_count=len(main_candidates),
+        cutout_entity_groups=tuple(cutout_groups),
     )
     section_proof = SectionProof(
         polygon=section.polygon,

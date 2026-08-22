@@ -107,6 +107,7 @@ class PlateOutline:
     anchor_x_mm: float
     source_handles: tuple[str, ...]
     candidate_count: int
+    cutout_entity_groups: tuple[tuple[DXFEntity, ...], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -127,6 +128,7 @@ class DevelopedPlate:
     longitudinal: LongitudinalProof
     transformed_entities: tuple[DXFEntity, ...]
     metrics: DevelopmentMetrics
+    transformed_cutout_entity_groups: tuple[tuple[DXFEntity, ...], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
