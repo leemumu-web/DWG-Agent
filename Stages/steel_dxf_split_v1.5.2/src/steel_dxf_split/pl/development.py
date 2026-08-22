@@ -473,8 +473,6 @@ def _coalesce_output_lines(
         for first_index, first in enumerate(result):
             for second_index in range(first_index + 1, len(result)):
                 second = result[second_index]
-                if first.source_index != second.source_index:
-                    continue
                 merged = _merge_collinear_lines(first.entity, second.entity)
                 if merged is not None:
                     merged_pair = (
