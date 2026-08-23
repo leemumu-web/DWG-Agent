@@ -1679,6 +1679,15 @@ def _intervals(
         )
     terminal_end_indices: set[int] = set()
     if len(intervals) > 1:
+        terminal_intervals = (intervals[0], intervals[-1])
+        paired_terminal_tapers = all(
+            abs(interval.upper_delta_y_mm) > _TURN_TOLERANCE_MM
+            and abs(interval.lower_delta_y_mm) > _TURN_TOLERANCE_MM
+            and interval.upper_delta_y_mm * interval.lower_delta_y_mm < 0.0
+            for interval in terminal_intervals
+        )
+        if paired_terminal_tapers:
+            terminal_end_indices.update((0, len(intervals) - 1))
         for indices in (range(len(intervals)), range(len(intervals) - 1, -1, -1)):
             connected_to_end = False
             for index in indices:

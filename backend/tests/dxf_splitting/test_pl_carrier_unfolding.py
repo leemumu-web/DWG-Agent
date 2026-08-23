@@ -971,6 +971,65 @@ def test_rounded_terminal_profile_is_end_topology_before_carrier_selection() -> 
     assert all(interval.is_turn_candidate for interval in proof.intervals[:3])
 
 
+def test_paired_terminal_tapers_are_end_features_not_carriers() -> None:
+    entities, polygon = _paired_outline(
+        (
+            (0.0, 100.0),
+            (300.0, 200.0),
+            (2400.0, 200.0),
+            (2700.0, 100.0),
+        ),
+        (
+            (0.0, 0.0),
+            (300.0, -100.0),
+            (2400.0, -100.0),
+            (2700.0, 0.0),
+        ),
+    )
+
+    proof = analyze_longitudinal_outline(entities, polygon, thickness_mm=30.0)
+
+    assert proof.carrier_interval_indices == (1,)
+    assert proof.selection_reason == "unique_longest_body"
+    assert proof.intervals[0].is_end_feature
+    assert proof.intervals[-1].is_end_feature
+
+
+def test_single_terminal_taper_keeps_the_existing_carrier_rule() -> None:
+    entities, polygon = _paired_outline(
+        ((0.0, 100.0), (300.0, 200.0), (2700.0, 200.0)),
+        ((0.0, 0.0), (300.0, -100.0), (2700.0, -100.0)),
+    )
+
+    proof = analyze_longitudinal_outline(entities, polygon, thickness_mm=30.0)
+
+    assert proof.carrier_interval_indices == (0,)
+    assert proof.selection_reason == "paired_visible_turn"
+    assert not proof.intervals[0].is_end_feature
+
+
+def test_same_direction_terminal_slopes_do_not_become_end_features() -> None:
+    entities, polygon = _paired_outline(
+        (
+            (0.0, 100.0),
+            (300.0, 150.0),
+            (2400.0, 150.0),
+            (2700.0, 100.0),
+        ),
+        (
+            (0.0, 0.0),
+            (300.0, 50.0),
+            (2400.0, 50.0),
+            (2700.0, 0.0),
+        ),
+    )
+
+    with pytest.raises(PLSplitError) as error:
+        analyze_longitudinal_outline(entities, polygon, thickness_mm=30.0)
+
+    assert error.value.code == "CARRIER_AMBIGUOUS"
+
+
 def test_single_parallel_sloped_course_remains_a_body_interval() -> None:
     entities, polygon = _paired_outline(
         ((0.0, 100.0), (800.0, 200.0)),

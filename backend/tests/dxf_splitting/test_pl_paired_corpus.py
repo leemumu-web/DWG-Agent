@@ -34,6 +34,9 @@ def test_all_paired_pl_sources_match_the_professional_result_contract(
     report = json.loads(batch.report_path.read_text(encoding="utf-8"))
     assert batch.success_count == len(source_names)
     assert batch.rejected_count == 0
+    items_by_part = {item["part_number"]: item for item in report["items"]}
+    assert tuple(items_by_part["2b1-cb-61"]["transform"]["carrier_interval_indices"]) == (1,)
+    assert tuple(items_by_part["2b1-cb-62"]["transform"]["carrier_interval_indices"]) == (1,)
 
     for item in report["items"]:
         raw = Decimal(str(item["lengths"]["raw_mm"]))
@@ -60,9 +63,7 @@ def test_all_paired_pl_sources_match_the_professional_result_contract(
         assert len(output_components) >= len(reference_loops)
 
         output_main = max(output_components, key=lambda component: component.polygon.area)
-        output_main_entities = tuple(
-            segment.entity for segment in output_main.segments
-        )
+        output_main_entities = tuple(segment.entity for segment in output_main.segments)
         assert not any(
             _merge_collinear_lines(first, second) is not None
             for index, first in enumerate(output_main_entities)
