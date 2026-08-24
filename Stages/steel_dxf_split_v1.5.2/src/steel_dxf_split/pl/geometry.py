@@ -293,6 +293,42 @@ def _circle_arc_group(circle: Circle) -> tuple[DXFEntity, ...]:
     )
 
 
+def _circle_signature(
+    group: tuple[DXFEntity, ...],
+) -> tuple[tuple[float, float], float] | None:
+    arcs = tuple(cast(Arc, entity) for entity in group if entity.dxftype() == "ARC")
+    if not arcs or len(arcs) != len(group):
+        return None
+    center = (float(arcs[0].dxf.center.x), float(arcs[0].dxf.center.y))
+    radius = float(arcs[0].dxf.radius)
+    if any(
+        dist(center, (float(arc.dxf.center.x), float(arc.dxf.center.y)))
+        > TOPOLOGY_TOLERANCE_MM
+        or abs(float(arc.dxf.radius) - radius) > TOPOLOGY_TOLERANCE_MM
+        for arc in arcs[1:]
+    ):
+        return None
+    return center, radius
+
+
+def _without_large_circle_covered_centers(
+    groups: tuple[tuple[DXFEntity, ...], ...],
+) -> tuple[tuple[DXFEntity, ...], ...]:
+    signatures = tuple(_circle_signature(group) for group in groups)
+    return tuple(
+        group
+        for index, (group, signature) in enumerate(zip(groups, signatures, strict=True))
+        if signature is None
+        or not any(
+            other_index != index
+            and other is not None
+            and other[1] - signature[1] >= TOPOLOGY_TOLERANCE_MM
+            and dist(signature[0], other[0]) <= other[1] - TOPOLOGY_TOLERANCE_MM
+            for other_index, other in enumerate(signatures)
+        )
+    )
+
+
 def validate_closed_outline(
     entities: tuple[DXFEntity, ...],
     *,
@@ -368,6 +404,7 @@ def analyze_geometry(
             continue
         selected_centers.append((float(center.x), float(center.y)))
         cutout_groups.append(_circle_arc_group(circle))
+    cutout_groups = list(_without_large_circle_covered_centers(tuple(cutout_groups)))
     outer_entities = _outer_entities(main)
     proved_outer = validate_closed_outline(
         outer_entities, tolerance_mm=TOPOLOGY_TOLERANCE_MM

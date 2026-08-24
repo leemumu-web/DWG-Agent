@@ -12,6 +12,13 @@ from steel_dxf_split.pl import split_pl
 from steel_dxf_split.pl.development import _merge_collinear_lines
 from steel_dxf_split.pl.geometry import _proved_components
 
+COVERED_CENTER_OUTER_ONLY_PARTS = {
+    "2b1-pb-77",
+    "2b1-pb-79",
+    "2b1-pb-101",
+    "2b1-pb-133",
+}
+
 
 def _paired_directories() -> tuple[Path, Path]:
     source = os.environ.get("PL_PAIRED_SOURCE_DIR")
@@ -61,6 +68,8 @@ def test_all_paired_pl_sources_match_the_professional_result_contract(
         )
         output_components = _proved_components(output_cut)
         assert len(output_components) >= len(reference_loops)
+        if item["part_number"] in COVERED_CENTER_OUTER_ONLY_PARTS:
+            assert len(output_components) == 4
 
         output_main = max(output_components, key=lambda component: component.polygon.area)
         output_main_entities = tuple(segment.entity for segment in output_main.segments)

@@ -280,6 +280,7 @@ def _save_geometry_source(
     include_section: bool = True,
     duplicate_main: bool = False,
     include_hole: bool = False,
+    small_circle_offset_mm: float | None = None,
 ) -> None:
     document = _new_source_document()
     layout = document.modelspace()
@@ -301,6 +302,27 @@ def _save_geometry_source(
         layout.add_circle(
             (110.0, 110.0),
             10.0,
+            dxfattribs={"layer": "Bolt"},
+        )
+    if small_circle_offset_mm is not None:
+        center = (200.0 + small_circle_offset_mm, 110.0)
+        layout.add_arc(
+            center,
+            10.0,
+            0.0,
+            180.0,
+            dxfattribs={"layer": "Part"},
+        )
+        layout.add_arc(
+            center,
+            10.0,
+            180.0,
+            360.0,
+            dxfattribs={"layer": "Part"},
+        )
+        layout.add_circle(
+            (200.0, 110.0),
+            20.0,
             dxfattribs={"layer": "Bolt"},
         )
     if include_section:
@@ -377,6 +399,30 @@ def test_main_view_hole_is_retained_as_a_cutout_group(
 
     assert len(outline.cutout_entity_groups) == 1
     assert len(outline.cutout_entity_groups[0]) == 2
+
+
+def test_large_circle_covered_small_center_keeps_only_outer(tmp_path: Path) -> None:
+    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    drawing = tmp_path / "covered-center-hole.dxf"
+    _save_geometry_source(drawing, small_circle_offset_mm=10.3)
+    context, metadata = _load_geometry_context(drawing)
+
+    outline, _ = geometry.analyze_geometry(context, metadata)
+
+    assert len(outline.cutout_entity_groups) == 1
+    polygon = geometry.validate_closed_outline(outline.cutout_entity_groups[0])
+    assert polygon.bounds == pytest.approx((180.0, 90.0, 220.0, 130.0), abs=0.001)
+
+
+def test_small_center_outside_large_circle_keeps_both(tmp_path: Path) -> None:
+    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    drawing = tmp_path / "offset-holes.dxf"
+    _save_geometry_source(drawing, small_circle_offset_mm=20.2)
+    context, metadata = _load_geometry_context(drawing)
+
+    outline, _ = geometry.analyze_geometry(context, metadata)
+
+    assert len(outline.cutout_entity_groups) == 2
 
 
 def test_bolt_cutout_is_scaled_and_written_with_the_pl_outline(
