@@ -57,6 +57,16 @@ bash scripts/docker.sh smoke
 - `.env.docker`、`.env` 等密钥文件在 `.gitignore` 内，不入库。
 - 脚本与 `.dockerignore` 的适配已随仓库提交，见 CHANGELOG `[Unreleased]`。
 
+## 本机 DWG→DXF（ODA）适配
+
+ODA File Converter 以 AppImage 分发，本机需补齐运行依赖：
+
+- `xvfb`：无头 X server（ODA 命令行模式需要）。
+- `libfuse2`：AppImage 的 FUSE 挂载依赖。Ubuntu 24.04 默认只有 `libfuse3`，缺 `libfuse2` 时 AppImage 挂载会在清理时断连（`Transport endpoint is not connected`，DXF 已写出仍判失败）。
+- `dwg_converter` 引擎已内置 `APPIMAGE_EXTRACT_AND_RUN=1`（与生产容器 Dockerfile 全局 ENV 一致），强制 AppImage 走提取模式、不依赖 FUSE，宿主机行为稳定。
+
+安装后自检：`Stages/dwg2dxf` 下 `uv run python -m dwg_converter --check-env`。
+
 ## 本机验证结果（2026-08-29）
 
 在 24 vCPU / 30 GiB 工作站上完成验证：

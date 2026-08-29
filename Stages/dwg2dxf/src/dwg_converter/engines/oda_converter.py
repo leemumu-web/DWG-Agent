@@ -227,6 +227,11 @@ class OdaConverter:
             process_environment = os.environ.copy()
             process_environment["TMPDIR"] = call_tmp
             process_environment["XDG_RUNTIME_DIR"] = str(xdg_runtime)
+            # ODA 以 AppImage 分发。强制 extract-and-run（与生产容器 Dockerfile 的
+            # 全局 ENV APPIMAGE_EXTRACT_AND_RUN=1 一致）：宿主机若只装 libfuse3、
+            # 缺 libfuse2，AppImage 的 FUSE 挂载会因挂载点提前断连返回 ENOTCONN，
+            # 即使 DXF 产物已写出也被判失败。提取模式不依赖 FUSE，行为更稳定。
+            process_environment["APPIMAGE_EXTRACT_AND_RUN"] = "1"
             result = subprocess.run(
                 full_cmd,
                 text=True,

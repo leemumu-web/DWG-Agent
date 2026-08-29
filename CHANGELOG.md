@@ -43,6 +43,7 @@
 - `scripts/lib/common.sh` 引入 `DOCKER_BIN`/`dck`：在普通用户无 docker-socket 访问权、需 sudo 的宿主机上透明代理 docker 命令；无需 sudo 的环境行为不变。`docker.sh`/`status.sh`/`start-all.sh`/`verify.sh` 同步改用统一入口。
 - 清理旧发布环境：移除本机 gitignore 的 `releases/`（r36→r39.5 加密发布包，约 7.6 GB）与旧 SQLite 开发库（`var/app.db`、`backend/var/app.db`、`var/backups/`）。本机部署改为直接源码构建，发布包按需经 `scripts/release.sh` 生成。
 - 文档体系补齐：`docs/README.md` 操作指南新增[本机工作站部署适配](docs/guides/local-workstation-deploy.md)；根 README 与 `docs/guides/deployment.md` 增加本机 sudo-docker / 非 80 端口差异说明。
+- `dwg2dxf` 引擎强制 `APPIMAGE_EXTRACT_AND_RUN=1`（与生产容器一致）：宿主机缺 `libfuse2` 时 ODA AppImage 的 FUSE 挂载会在清理时断连（ENOTCONN），即使 DXF 产物已写出也被判失败；提取模式不依赖 FUSE。
 
 ### Fixed
 
