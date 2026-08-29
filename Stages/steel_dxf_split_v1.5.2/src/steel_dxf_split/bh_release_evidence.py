@@ -31,7 +31,7 @@ class BHReleaseEvidence:
 _TRUSTED_ARTIFACTS = {
     "project_tekla_bh_dxf_v1": (
         "release_evidence/project_tekla_bh_dxf_v1.json",
-        "243fa7d095cf9c402ffcb62ad03634b0e25b895c2fa3ea6af6004b1d5fdc2e34",
+        "9c45cec27b652e2e219a31d9b5e635eaf3a4688df90a3a9a87fdb4fcd8551b8d",
     ),
 }
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")

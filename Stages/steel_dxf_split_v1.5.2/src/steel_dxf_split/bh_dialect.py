@@ -108,7 +108,7 @@ class BHDialectProfile:
 
 DEFAULT_TEKLA_DIALECT = BHDialectProfile(
     profile_id="project_tekla_bh_dxf_v1",
-    hidden_projection_linetypes=("XKITLINE04", "DOT2"),
+    hidden_projection_linetypes=("XKITLINE04", "DOT2", "DASHEDX2"),
     rules=(
         RoleRule(
             SemanticLayer.PART_EDGE,
