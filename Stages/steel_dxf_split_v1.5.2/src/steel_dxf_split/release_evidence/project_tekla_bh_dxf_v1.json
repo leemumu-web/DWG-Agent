@@ -1,6 +1,6 @@
 {
   "compiler_version": "1.5.2",
-  "dialect_fingerprint": "289f9f765eb92346039c3e4af21d29f87d05cf44463d45c87b611982e7178fa5",
+  "dialect_fingerprint": "e1170b19cd0611ce9fd9f0356f96f987f5e4d0db30fca44ec272c8b768c19718",
   "evidence_note": "Generated only from a complete source-first candidate summary; manual split drawings were post-hoc diagnostics. The artifact's exact SHA-256 is pinned in compiler code.",
   "ontology_version": "BH-MFG-3.1",
   "profile_id": "project_tekla_bh_dxf_v1",

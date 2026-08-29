@@ -8,7 +8,12 @@ from typing import Any
 from .bh_annotations import AnnotationModel
 from .bh_constraints import ConstraintContext, evaluate_constraints
 from .bh_dialect import canonical_tekla_layer, canonical_tekla_linetype
-from .bh_errors import BHCandidateLoweringError, BHDomainError, BHNoValidHypothesis
+from .bh_errors import (
+    BHCandidateLoweringError,
+    BHDomainError,
+    BHInsufficientViewError,
+    BHNoValidHypothesis,
+)
 from .bh_extractor import BHBlockInstance, lower_bh_assembly
 from .bh_hypothesis import (
     AssemblyHypothesis,
@@ -199,7 +204,10 @@ def enumerate_view_pair_hypotheses(
 ) -> list[ViewPairHypothesis]:
     blocks = part_blocks_from_ir(ir)
     if len(blocks) < 2:
-        raise ValueError(f"Expected at least two Part projection blocks, found {len(blocks)}.")
+        raise BHInsufficientViewError(
+            "Expected at least two Part projection blocks, found "
+            f"{len(blocks)}; the flange-plane view is missing."
+        )
     candidate_annotations = (
         annotations if annotations is not None else AnnotationModel()
     )
