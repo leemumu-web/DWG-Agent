@@ -77,7 +77,7 @@ if [ "$MODE" = "full" ]; then
     run_gate "完整后端 pytest" bash -c 'cd backend && uv run python -m pytest -q' -- "$PROJECT_ROOT"
     run_gate "Alembic 模型检查" bash -c 'cd backend && uv run alembic check' -- "$PROJECT_ROOT"
     run_gate "基础设施验证" bash infra/verification/verify.sh
-    run_gate "Compose 配置" docker compose config --quiet
+    run_gate "Compose 配置" dck compose config --quiet
     run_optional_gate "隔离 MySQL 迁移" bash scripts/db.sh migration-test
     run_optional_gate "DWG→DXF Stage" bash -c 'cd Stages/dwg2dxf && uv run python -m pytest -q' -- "$PROJECT_ROOT"
     run_optional_gate "DXF→DWG Stage" bash -c 'cd Stages/dxf2dwg && uv run python -m pytest -q' -- "$PROJECT_ROOT"

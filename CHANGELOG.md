@@ -15,6 +15,7 @@
 - `make verify-quick`、`make verify-full` 与 full gate 的 DXF→Excel Stage 测试。
 - Linux 十阶段 `linux_production` 模板、模板能力 API、文件/结果产物绑定和统一阶段执行端点。
 - 生产流程控制台的文件筛选/绑定、DXF→Excel、Excel Final、占位契约和产物下载操作。
+- 本机工作站部署适配说明：见 `docs/guides/local-workstation-deploy.md`。
 
 ### Changed
 
@@ -38,6 +39,8 @@
 - 工作流直接复用现有 Job/Celery 与 `/files`：自动阶段按工作流/阶段幂等绑定 attempt，成功结果自动挂接，取消流程同步取消 active Job。
 - 自动阶段失败或被单独取消后可从同一 executions 端点重试：复用 Job、递增 attempt、重开原阶段并保持旧 worker fencing；显式取消流程仍不可重开。
 - Linux 生产阶段按模板强制校验 artifact type，任意文件类型不能绕过占位/外部交接条件。
+- `.dockerignore` 排除本机工作数据目录（`tmp_data/`、`太子/`、拆板前 DXF 汇总、BH/BOX 优化等），避免构建上下文膨胀到 20 GB 以上。
+- `scripts/lib/common.sh` 引入 `DOCKER_BIN`/`dck`：在普通用户无 docker-socket 访问权、需 sudo 的宿主机上透明代理 docker 命令；无需 sudo 的环境行为不变。`docker.sh`/`status.sh`/`start-all.sh`/`verify.sh` 同步改用统一入口。
 
 ### Fixed
 

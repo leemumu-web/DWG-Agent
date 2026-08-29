@@ -10,8 +10,10 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/common.sh"
 
 DOCKER_ENV_FILE="$PROJECT_ROOT/.env.docker"
 COMPOSE_PROJECT_NAME="${DWG_COMPOSE_PROJECT_NAME:-dwg-agent}"
+# $DOCKER_BIN resolves to "docker" or "sudo docker" (see common.sh) so the
+# same commands work on hosts where the daemon socket needs sudo.
 COMPOSE_CMD=(
-    docker compose
+    $DOCKER_BIN compose
     --project-name "$COMPOSE_PROJECT_NAME"
     --project-directory "$PROJECT_ROOT"
     --env-file "$DOCKER_ENV_FILE"
@@ -95,7 +97,7 @@ compose_require_docker_disk_space() {
     [[ "$minimum_gib" =~ ^[1-9][0-9]*$ ]] \
         || compose_die "DOCKER_MIN_FREE_GIB must be a positive integer"
 
-    docker_root=$(docker info --format '{{.DockerRootDir}}') \
+    docker_root=$($DOCKER_BIN info --format '{{.DockerRootDir}}') \
         || compose_die "cannot determine the Docker data root"
     [[ -n "$docker_root" ]] || compose_die "Docker returned an empty data root"
     available_kib=$(df -Pk -- "$docker_root" | awk 'END { print $4 }') \
@@ -119,7 +121,7 @@ compose_check_source() {
 
 compose_check() {
     command -v docker >/dev/null || compose_die "docker is not installed"
-    docker info >/dev/null || compose_die "Docker daemon is unavailable"
+    $DOCKER_BIN info >/dev/null || compose_die "Docker daemon is unavailable"
     compose_require_env
     compose_require_docker_disk_space
     compose_check_source
@@ -307,7 +309,7 @@ compose_service_container_id() {
 compose_service_image_id() {
     local service=$1 container_id image_id
     container_id=$(compose_service_container_id "$service")
-    image_id=$(docker inspect --format '{{.Image}}' "$container_id")
+    image_id=$($DOCKER_BIN inspect --format '{{.Image}}' "$container_id")
     [[ -n "$image_id" ]] || compose_die "Compose service has no image: $service"
     printf '%s' "$image_id"
 }
@@ -336,13 +338,13 @@ compose_backup() {
         compose_info "archiving MinIO object data"
         local minio_container
         minio_container=$(compose_service_container_id "minio")
-        docker run --rm --network none --read-only --user 0:0 \
+        $DOCKER_BIN run --rm --network none --read-only --user 0:0 \
             --volumes-from "$minio_container":ro --entrypoint sh "$backend_image" -c \
             'cd /data && tar -czf - .' > "$destination/minio-data.tar.gz"
     else
         compose_warn "STORAGE_BACKEND=$storage_backend — MinIO archive skipped; objects in app_var volume"
         compose_info "archiving app_var/storage (local backend)"
-        docker run --rm --network none --read-only --user 0:0 \
+        $DOCKER_BIN run --rm --network none --read-only --user 0:0 \
             --volumes-from "$backend_container":ro --entrypoint sh "$backend_image" -c \
             'cd /app/var && tar -czf - storage' > "$destination/app-var-storage.tar.gz" 2>/dev/null || \
             compose_warn "app_var archive failed — volume may be empty or unmounted"
@@ -392,7 +394,7 @@ compose_restore() {
         compose_info "restoring MinIO volume"
         local minio_container
         minio_container=$(compose_service_container_id "minio")
-        docker run --rm --network none --user 0:0 \
+        $DOCKER_BIN run --rm --network none --user 0:0 \
             --volumes-from "$minio_container" --entrypoint sh "$backend_image" -c \
             'find /data -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +; tar -xzf - -C /data' \
             < "$source/minio-data.tar.gz"
@@ -400,7 +402,7 @@ compose_restore() {
 
     if $has_appvar; then
         compose_info "restoring app_var storage"
-        docker run --rm --network none --user 0:0 \
+        $DOCKER_BIN run --rm --network none --user 0:0 \
             --volumes-from "$backend_container" --entrypoint sh "$backend_image" -c \
             'rm -rf /app/var/storage; tar -xzf - -C /app/var' \
             < "$source/app-var-storage.tar.gz"

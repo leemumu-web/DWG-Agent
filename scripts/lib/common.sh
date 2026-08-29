@@ -41,6 +41,27 @@ ensure_sudo() {
     return 1
 }
 
+# Resolve the docker command once. On hosts where the regular user has no
+# docker-socket access (e.g. this workstation), transparently prepend sudo so
+# the same scripts keep working in a terminal. Non-interactive runs without
+# passwordless sudo fall back to plain `docker` and surface the daemon error.
+if [ "${DWG_DOCKER_RESOLVED:-0}" != "1" ]; then
+    if docker info >/dev/null 2>&1; then
+        DOCKER_BIN="docker"
+    elif sudo -n true 2>/dev/null; then
+        DOCKER_BIN="sudo docker"
+    elif [ -t 0 ]; then
+        DOCKER_BIN="sudo docker"
+    else
+        DOCKER_BIN="docker"
+    fi
+    DWG_DOCKER_RESOLVED=1
+    export DOCKER_BIN DWG_DOCKER_RESOLVED
+fi
+
+# Run docker (possibly via sudo) with the resolved command.
+dck() { $DOCKER_BIN "$@"; }
+
 # Read one value from an .env-style file without evaluating shell input.
 env_value() {
     local file="$1" key="$2"
