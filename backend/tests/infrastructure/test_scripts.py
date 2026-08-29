@@ -788,7 +788,8 @@ def test_worker_stop_signals_only_celery_parent_processes():
 def test_status_warns_when_local_and_compose_consume_the_same_cad_queue():
     content = _read("scripts/status.sh")
 
-    assert "docker compose ps --status running --services" in content
+    # docker 经 dck 解析（普通用户无 socket 访问权时退化为 sudo docker）。
+    assert "dck compose ps --status running --services" in content
     assert "本地与 Compose 同时消费" in content
     assert "worker-${label}" in content
 

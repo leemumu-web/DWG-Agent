@@ -216,6 +216,8 @@ docker compose --profile workers up -d
 docker compose ps
 ```
 
+> 本机（`docker` 需 sudo、非 80 端口）部署差异与已验证命令见[本机工作站部署适配](docs/guides/local-workstation-deploy.md)。
+
 数据控制台随主服务启动。管理员可查看全部登记数据和原始 MySQL 表；非管理员只看到自己产生的文件和流转记录。身份与权限表只读，其他允许的管理员写操作进入审计日志。详见[数据控制台运行手册](docs/operations/data-console.md)。
 
 核心集合为 `nginx/backend-api/mysql/minio/worker-report`；`workers` profile 增加 11 个服务：4 组 CAD/Excel worker、分类、拆板、余料转换/解析、`dispatch`、`maintenance` 和 contract-only `worker-agent`。`worker-agent` healthy 只表示 Celery 进程已连接 broker；当前没有注册 Agent task，也没有 Agent 执行器。

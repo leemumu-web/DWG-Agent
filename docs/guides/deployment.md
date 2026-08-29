@@ -47,6 +47,8 @@ bash scripts/docker.sh check
 
 检查会拒绝缺失/空的必要凭据与占位密钥，验证两个 Compose profile，并确认必要 Stage 源码存在；不会打印密钥值。
 
+> **普通用户无 docker-socket 访问权的主机**（如本工作站）：`scripts/lib/common.sh` 会把 `docker` 命令解析为 `sudo docker`（`DOCKER_BIN`/`dck`），部署脚本在交互终端下自动经 sudo 运行，无需改命令。非 80 `HTTP_PORT` 下，Nginx 用 `$http_host` 转发 Host 头，避免 Starlette 尾部斜杠 307 重定向丢失端口。详见[本机工作站部署适配](local-workstation-deploy.md)。
+
 重要配置：
 
 - `HTTP_PORT`：宿主 HTTP 端口，默认 `80`。

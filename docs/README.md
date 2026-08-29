@@ -39,6 +39,7 @@
 |---|---|
 | [开发指南](guides/development.md) | 本地开发、测试、迁移和提交前检查 |
 | [部署指南](guides/deployment.md) | 当前 Compose 拓扑、密钥、启动与验收 |
+| [本机工作站部署适配](guides/local-workstation-deploy.md) | 本机（docker 需 sudo、18080 端口、国内镜像）直接源码构建部署与验证结果 |
 | [打包加密部署完整操作手册](guides/release-and-deploy-operations.md) | 打包→传输→部署→验证全流程、文件清单、版本号约定、下次增量更新要求 |
 | [离线发布与 gg 部署注意事项](guides/offline-release-deploy-notes.md) | 打包镜像源、excel_stage3 打包例外、gg 增量部署与数据库保留约定 |
 | [运维指南](guides/operations.md) | 状态检查、归档、备份恢复和事故处理 |
