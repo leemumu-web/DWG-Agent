@@ -206,7 +206,7 @@ export function PlXboxDrawingSelectiveExportControl({
               type="warning"
               showIcon
               message="当前没有可导出的文件"
-              description="当前 PL 拆板批次没有未通过的可用源 DXF。XBOX 类别仅为后续实现预留；若 PL 文件已被清理，请联系管理员。"
+              description="当前拆板批次没有未通过的可用源 DXF；若文件已被清理，请联系管理员。"
             />
           )}
           {previewQ.data && !previewQ.isFetching && (

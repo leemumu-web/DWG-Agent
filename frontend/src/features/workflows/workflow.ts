@@ -387,7 +387,7 @@ export interface WorkflowRetentionExport {
 }
 
 // ---- PL / XBOX 拆板阶段（stage_code=pl_xbox_split）----
-// 当前后端只执行 PL；XBOX 字段与选择导出类别作为后续接入的稳定接口位。
+// PL 为原长单产物；XBOX 为原长+焊接余量成对产物。
 // 两者均不并入既有 BOX/BH 拆板实现。
 
 export interface PlXboxSplitItem {

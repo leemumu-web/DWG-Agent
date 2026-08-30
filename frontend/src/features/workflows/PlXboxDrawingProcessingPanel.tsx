@@ -168,7 +168,7 @@ interface Props {
   onChanged: () => void;
 }
 
-const IMPLEMENTED_FAMILIES = ['PL'] as const;
+const IMPLEMENTED_FAMILIES = ['PL', 'XBOX'] as const;
 
 function familyAcceptedCounts(items: PlXboxSplitItem[]) {
   return IMPLEMENTED_FAMILIES.map((family) => ({
@@ -315,7 +315,7 @@ export function PlXboxDrawingProcessingPanel({
           type="info"
           showIcon
           message="PL 拆板输入已就绪"
-          description="当前版本只拆数据库中已明确分类为 PL 的图纸。XBOX 接口位已保留但不执行拆板；BH、BOX 和其他类型继续走各自阶段。"
+          description="拆板器处理数据库中已明确分类为 PL 与 XBOX 的图纸；BH、BOX 和其他类型继续走各自阶段。"
           action={(
             <Button
               type="primary"
@@ -431,7 +431,7 @@ export function PlXboxDrawingProcessingPanel({
                     {familyAccepted.map(({ family, accepted }) => `${family} 正式结果 ${accepted} 张`).join(' · ')}
                   </Typography.Text>
                   <Typography.Text type="secondary">
-                    PL 只产出原长 DXF，不产出余量版；XBOX 本版本只保留分类与接口位，不执行拆板。
+                    PL 每图产出原长 DXF（单产物）；XBOX 每图产出原长与焊接余量成对 DXF。
                   </Typography.Text>
                 </Space>
               )}
