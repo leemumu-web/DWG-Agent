@@ -1,0 +1,37 @@
+{
+  "schema": "XBOX-ACCEPTANCE-GATE-1.0",
+  "description": "XBOX 拆板发布验收门：20 组权威配对样本（拆板前/拆板后），b-cb-1..10 为校准组、b-cb-11..20 为独立验收组。样本不入 Git；本文件固化划分与断言阈值，使验收可复现。",
+  "corpus_manifest": "XBOX配对清单.json",
+  "pair_count": 20,
+  "calibration": {
+    "range": "b-cb-1..b-cb-10",
+    "count": 10
+  },
+  "acceptance": {
+    "range": "b-cb-11..b-cb-20",
+    "count": 10
+  },
+  "geometry_assertions": {
+    "normal_plates_per_drawing": 2,
+    "normal_plate_vertices": 4,
+    "normal_plate_closed": true,
+    "plate_match_basis": "sorted bounding width/height equality against the human post-split answer within tolerance",
+    "tolerance_mm": 0.01,
+    "labels": ["p=<member>腹", "p=<member>翼"]
+  },
+  "weld_allowance_assertions": {
+    "tiers_mm": [
+      {"max_length": 2000, "extension": 0},
+      {"max_length": 5000, "extension": 5},
+      {"max_length": 10000, "extension": 10},
+      {"max_length": 15000, "extension": 15},
+      {"max_length": null, "extension": 20}
+    ],
+    "width_must_equal_normal": true,
+    "tier_boundary_inclusive_upper": true
+  },
+  "boundary_fixtures": [
+    {"pair": "b-cb-9", "note": "normal length exactly 10000.0mm must take +10"},
+    {"pair": "b-cb-1", "note": "normal length 10000.83mm must take +15"}
+  ]
+}
