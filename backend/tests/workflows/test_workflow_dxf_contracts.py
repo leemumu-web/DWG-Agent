@@ -32,6 +32,21 @@ EXPECTED_DRAWING_FLOW = {
             "classification_manifest",
         ],
     },
+    "pl_xbox_split": {
+        "required_inputs": ["classified_dxf"],
+        "artifact_types": [
+            "processed_dxf",
+            "split_report",
+            "validation_report",
+            "split_ledger",
+            "split_manifest",
+        ],
+        "required_outputs": [
+            "validation_report",
+            "split_ledger",
+            "split_manifest",
+        ],
+    },
     "drawing_processing": {
         "required_inputs": ["classified_dxf"],
         "artifact_types": [
@@ -255,7 +270,7 @@ def test_linux_production_has_no_generic_drawing_artifacts():
     assert published.isdisjoint(forbidden)
 
 
-def test_new_linux_workflow_uses_definition_revision_four(db):
+def test_new_linux_workflow_uses_definition_revision_five(db):
     user, project = _owner_project(db)
 
     workflow = workflow_service.create_workflow(
@@ -268,7 +283,7 @@ def test_new_linux_workflow_uses_definition_revision_four(db):
         created_by=user.id,
     )
 
-    assert workflow.config_json == {"definition_revision": 4}
+    assert workflow.config_json == {"definition_revision": 5}
 
 
 def test_dxf_artifact_rejects_excel_file(db):

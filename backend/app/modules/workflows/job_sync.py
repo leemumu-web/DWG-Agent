@@ -114,7 +114,7 @@ def sync_workflow_from_jobs(db: Session, workflow: WorkflowRun) -> WorkflowRun:
                     result_id=result.id,
                     metadata={"job_id": job.id, "job_attempt": job.attempt},
                 )
-            if stage.stage_code == "drawing_processing":
+            if stage.stage_code in {"drawing_processing", "pl_xbox_split"}:
                 from app.modules.dxf_splitting.interface import get_dxf_split_outcome
 
                 split_outcome = get_dxf_split_outcome(
@@ -148,6 +148,12 @@ def sync_workflow_from_jobs(db: Session, workflow: WorkflowRun) -> WorkflowRun:
                 now=now,
             ):
                 continue
+            if stage.stage_code == "pl_xbox_split" and _skip_empty_legacy_split_stage(
+                db,
+                workflow,
+                now=now,
+            ):
+                continue
             next_stage = _next_stage(workflow, stage.sequence)
             if next_stage is not None and next_stage.status == "pending":
                 next_stage.status = (
@@ -166,9 +172,10 @@ def _skip_empty_split_stage(
     classification_job: Job,
     now: datetime,
 ) -> bool:
-    """Complete the split stage as an explicit no-op when BH/BOX input is empty."""
+    """Skip the PL stage when empty, then route to or around legacy BH/BOX."""
     from app.modules.dxf_classification.interface import (
         latest_classification_run,
+        list_pl_split_candidate_inputs,
         list_split_candidate_inputs,
     )
 
@@ -178,7 +185,6 @@ def _skip_empty_split_stage(
         or classification.job_id != classification_job.id
         or classification.job_attempt != classification_job.attempt
         or classification.status not in {"completed", "completed_with_review"}
-        or list_split_candidate_inputs(db, workflow.id)
     ):
         return False
     classification_stage = next(
@@ -189,31 +195,127 @@ def _skip_empty_split_stage(
         ),
         None,
     )
-    drawing_stage = (
+    following_stage = (
         _next_stage(workflow, classification_stage.sequence)
         if classification_stage is not None
         else None
     )
-    if drawing_stage is None or drawing_stage.stage_code != "drawing_processing":
+    if following_stage is None:
         return False
-    drawing_stage.status = "skipped"
-    drawing_stage.progress = 100
-    drawing_stage.error_code = None
-    drawing_stage.error_message = None
-    drawing_stage.started_at = drawing_stage.started_at or now
-    drawing_stage.finished_at = now
-    drawing_stage.output_json = {
-        "reason": "no_split_candidates",
-        "classification_run_id": classification.id,
-        "classification_job_id": classification.job_id,
-        "classification_job_attempt": classification.job_attempt,
-        "input_manifest_sha256": classification.input_manifest_sha256,
-    }
+    if following_stage.stage_code == "drawing_processing":
+        if list_split_candidate_inputs(db, workflow.id):
+            return False
+        _mark_drawing_stage_skipped(
+            workflow,
+            following_stage,
+            classification=classification,
+            now=now,
+        )
+        return True
+    if following_stage.stage_code != "pl_xbox_split":
+        return False
+    if list_pl_split_candidate_inputs(db, workflow.id):
+        return False
+    _mark_stage_skipped(
+        following_stage,
+        now=now,
+        output_json={
+            "reason": "no_pl_candidates",
+            "classification_run_id": classification.id,
+            "classification_job_id": classification.job_id,
+            "classification_job_attempt": classification.job_attempt,
+            "input_manifest_sha256": classification.input_manifest_sha256,
+            "xbox_status": "classification_only_reserved",
+        },
+    )
+    drawing_stage = _next_stage(workflow, following_stage.sequence)
+    if drawing_stage is None or drawing_stage.stage_code != "drawing_processing":
+        return True
+    if list_split_candidate_inputs(db, workflow.id):
+        if drawing_stage.status == "pending":
+            drawing_stage.status = "waiting_input"
+            drawing_stage.started_at = now
+        return True
+    _mark_drawing_stage_skipped(
+        workflow,
+        drawing_stage,
+        classification=classification,
+        now=now,
+    )
+    return True
+
+
+def _skip_empty_legacy_split_stage(
+    db: Session,
+    workflow: WorkflowRun,
+    *,
+    now: datetime,
+) -> bool:
+    from app.modules.dxf_classification.interface import (
+        latest_classification_run,
+        list_split_candidate_inputs,
+    )
+
+    if list_split_candidate_inputs(db, workflow.id):
+        return False
+    pl_stage = next(
+        (stage for stage in workflow.stages if stage.stage_code == "pl_xbox_split"),
+        None,
+    )
+    drawing_stage = _next_stage(workflow, pl_stage.sequence) if pl_stage is not None else None
+    classification = latest_classification_run(db, workflow.id)
+    if (
+        drawing_stage is None
+        or drawing_stage.stage_code != "drawing_processing"
+        or classification is None
+    ):
+        return False
+    _mark_drawing_stage_skipped(
+        workflow,
+        drawing_stage,
+        classification=classification,
+        now=now,
+    )
+    return True
+
+
+def _mark_stage_skipped(
+    stage,
+    *,
+    now: datetime,
+    output_json: dict[str, object],
+) -> None:
+    stage.status = "skipped"
+    stage.progress = 100
+    stage.error_code = None
+    stage.error_message = None
+    stage.started_at = stage.started_at or now
+    stage.finished_at = now
+    stage.output_json = output_json
+
+
+def _mark_drawing_stage_skipped(
+    workflow: WorkflowRun,
+    drawing_stage,
+    *,
+    classification,
+    now: datetime,
+) -> None:
+    _mark_stage_skipped(
+        drawing_stage,
+        now=now,
+        output_json={
+            "reason": "no_split_candidates",
+            "classification_run_id": classification.id,
+            "classification_job_id": classification.job_id,
+            "classification_job_attempt": classification.job_attempt,
+            "input_manifest_sha256": classification.input_manifest_sha256,
+        },
+    )
     excel_stage = _next_stage(workflow, drawing_stage.sequence)
     if excel_stage is not None and excel_stage.status == "pending":
         excel_stage.status = "waiting_input"
         excel_stage.started_at = now
-    return True
 
 
 def _next_stage(workflow: WorkflowRun, sequence: int):
@@ -286,7 +388,10 @@ def workflow_needs_sync(db: Session, workflow: WorkflowRun) -> bool:
         # `sync` also writes drawing_processing output_json when the split run
         # reaches a terminal outcome; without this check a run that finished
         # after the last sync would never be projected.
-        if stage.stage_code == "drawing_processing" and stage.output_json is None:
+        if (
+            stage.stage_code in {"drawing_processing", "pl_xbox_split"}
+            and stage.output_json is None
+        ):
             return True
         # A succeeded job also advances the next pending stage in sync.
         next_stage = _next_stage(workflow, stage.sequence)

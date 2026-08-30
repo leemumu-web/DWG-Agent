@@ -387,9 +387,8 @@ export interface WorkflowRetentionExport {
 }
 
 // ---- PL / XBOX 拆板阶段（stage_code=pl_xbox_split）----
-// 结构镜像 DxfSplitRun / DxfSplitItem，专门承载 PL 与 XBOX 两个工程族
-// （板件 / 箱型，独立类型、不并入 BOX/BH）。这些类型定义前端与后端之间
-// 的契约：后端实现 /pl-xbox-split 端点时必须按此形状返回。
+// 当前后端只执行 PL；XBOX 字段与选择导出类别作为后续接入的稳定接口位。
+// 两者均不并入既有 BOX/BH 拆板实现。
 
 export interface PlXboxSplitItem {
   id: number;

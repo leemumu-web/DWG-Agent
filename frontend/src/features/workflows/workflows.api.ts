@@ -413,7 +413,7 @@ export async function downloadPlXboxSelectiveExport(
   return downloadArchive(
     prepared.download_url,
     prepared.filename,
-    'PL/XBOX 选择导出下载失败',
+    'PL 选择导出下载失败',
     onProgress,
     prepared.source_size_bytes,
     signal,

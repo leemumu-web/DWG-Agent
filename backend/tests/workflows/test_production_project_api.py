@@ -44,7 +44,7 @@ def test_create_production_project_returns_project_and_started_complete_workflow
     assert data["workflow"]["workflow_type"] == "linux_production"
     assert data["workflow"]["status"] == "waiting_input"
     assert data["workflow"]["current_stage"] == "source_intake"
-    assert len(data["workflow"]["stages"]) == 11
+    assert len(data["workflow"]["stages"]) == 12
     with open_test_session() as db:
         membership = db.scalar(
             select(ProjectMember).where(

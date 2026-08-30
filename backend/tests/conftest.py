@@ -94,6 +94,9 @@ def _isolate_test_db(monkeypatch):
     monkeypatch.setattr("app.modules.dxf_classification.execution.SessionLocal", TestSessionLocal)
     monkeypatch.setattr("app.modules.dxf_splitting.execution.SessionLocal", TestSessionLocal)
     monkeypatch.setattr(
+        "app.modules.dxf_splitting.pl_execution.SessionLocal", TestSessionLocal
+    )
+    monkeypatch.setattr(
         "app.modules.excel_processing.execution.SessionLocal",
         TestSessionLocal,
     )

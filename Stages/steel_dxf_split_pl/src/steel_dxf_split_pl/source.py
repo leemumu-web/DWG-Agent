@@ -5,6 +5,7 @@ from pathlib import Path
 
 from ezdxf.entities import DXFEntity, MText, Text
 
+from .contracts import PLMetadata, PLSourceContext, PLSplitError
 from .dxf_io import (
     DXFLoadError,
     iter_modelspace_entities,
@@ -12,8 +13,6 @@ from .dxf_io import (
     normalize_text,
     recursive_virtual_entities,
 )
-
-from .contracts import PLMetadata, PLSourceContext, PLSplitError
 
 _PART_NUMBER = re.compile(r"^(?:p=)?([A-Za-z0-9][A-Za-z0-9._-]*)$", re.IGNORECASE)
 _PL_SPEC = re.compile(

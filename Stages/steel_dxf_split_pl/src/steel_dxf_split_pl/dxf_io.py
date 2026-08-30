@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
-from pathlib import Path
 import re
 import unicodedata
+from collections.abc import Iterator
+from pathlib import Path
 
 import ezdxf
 from ezdxf.entities import DXFEntity, Insert

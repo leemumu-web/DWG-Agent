@@ -6,8 +6,9 @@ from pathlib import Path
 import ezdxf
 import pytest
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-MERGE_SCRIPT_DIR = PROJECT_ROOT.parent / "太子"
+from tests.support.paths import REPO_ROOT
+
+MERGE_SCRIPT_DIR = REPO_ROOT.parent / "太子"
 sys.path.insert(0, str(MERGE_SCRIPT_DIR))
 
 import generate_combined_two_column_sheet as merge_sheet  # noqa: E402

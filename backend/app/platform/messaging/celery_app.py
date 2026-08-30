@@ -128,6 +128,7 @@ celery_app.conf.update(
         "app.workers.tasks_dxf2excel.*": {"queue": "dxf2excel"},
         "app.workers.tasks_dxf_classification.*": {"queue": "dxf_classification"},
         "app.workers.tasks_dxf_split.*": {"queue": "dxf_split"},
+        "app.workers.tasks_pl_dxf_split.*": {"queue": "dxf_split"},
         "app.workers.tasks_excel_final.*": {"queue": "excel_final"},
         "app.workers.tasks_excel_stage2.*": {"queue": "excel_stage2"},
         "app.workers.tasks_excel_stage3.*": {"queue": "excel_stage3"},

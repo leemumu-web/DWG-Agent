@@ -19,8 +19,8 @@ __all__ = [
     "PLMetadata",
     "PLSourceContext",
     "PLSplitError",
+    "__version__",
     "batch_payload",
     "compile_context",
     "split_pl",
-    "__version__",
 ]

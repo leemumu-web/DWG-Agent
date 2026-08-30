@@ -13,16 +13,15 @@ from ezdxf.math import ConstructionEllipse
 from shapely.geometry import LineString
 from shapely.ops import polylabel, unary_union
 
+from .contracts import DevelopedPlate, PLSplitError, PLWriteResult
 from .dxf_io import load_document
+from .geometry import TOPOLOGY_TOLERANCE_MM, flatten_entity, validate_closed_outline
 from .part_mark_layout import (
     PartMarkLayoutError,
     PartMarkTarget,
     layout_part_marks,
     part_mark_envelope,
 )
-
-from .contracts import DevelopedPlate, PLSplitError, PLWriteResult
-from .geometry import TOPOLOGY_TOLERANCE_MM, flatten_entity, validate_closed_outline
 
 _WINDOWS_CJK_DXF_FONT = "simsun.ttc"
 _DIMENSION_TOLERANCE_MM = 0.001

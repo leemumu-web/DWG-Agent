@@ -37,7 +37,19 @@ from app.modules.dxf_splitting.models import (
     DxfSplitReviewDecision,
     DxfSplitRun,
 )
-from app.modules.dxf_splitting.presentation import build_dxf_split_run_read
+from app.modules.dxf_splitting.pl_selective_exports import (
+    PL_SELECTIVE_EXPORT_COOKIE_NAME,
+    create_pl_download_token,
+    pl_export_download_path,
+    pl_export_filename,
+    pl_export_preview,
+    pl_storage_members,
+    require_pl_download_token,
+)
+from app.modules.dxf_splitting.presentation import (
+    build_dxf_split_run_read,
+    build_pl_split_run_read,
+)
 from app.modules.dxf_splitting.schemas import (
     DxfSplitExcelHandoff,
     DxfSplitHandoffDrawing,
@@ -46,6 +58,7 @@ from app.modules.dxf_splitting.schemas import (
     DxfSplitReviewDecisionWrite,
     DxfSplitReviewPage,
     DxfSplitRunRead,
+    PlSplitRunRead,
 )
 from app.modules.dxf_splitting.selective_exports import (
     SELECTIVE_EXPORT_COOKIE_NAME,
@@ -86,6 +99,20 @@ def run_dxf_splitting(job_id: int, **kwargs) -> None:
     run(job_id, **kwargs)
 
 
+def run_pl_dxf_splitting(job_id: int, **kwargs) -> None:
+    """执行一个独立 PL 拆板 Job（worker 侧，按 status+attempt 守卫）。"""
+    from app.modules.dxf_splitting.pl_execution import run_pl_dxf_splitting as run
+
+    run(job_id, **kwargs)
+
+
+def pl_dxf_split_run_for_job(db, *, job_id: int, attempt: int) -> DxfSplitRun | None:
+    """返回精确 PL 阶段 Job attempt 的拆板运行。"""
+    from app.modules.dxf_splitting.persistence import split_run_for_job
+
+    return split_run_for_job(db, job_id=job_id, attempt=attempt)
+
+
 def enqueue_dxf_splitting_job(
     job_id: int, attempt: int, *, task_id: str | None = None
 ) -> str:
@@ -94,6 +121,19 @@ def enqueue_dxf_splitting_job(
 
     return str(
         split_steel_dxf_task.apply_async(
+            args=[job_id, attempt], task_id=task_id
+        ).id
+    )
+
+
+def enqueue_pl_dxf_splitting_job(
+    job_id: int, attempt: int, *, task_id: str | None = None
+) -> str:
+    """投递独立 PL 拆板 Job 到 Celery。"""
+    from app.modules.dxf_splitting.tasks import split_pl_dxf_task
+
+    return str(
+        split_pl_dxf_task.apply_async(
             args=[job_id, attempt], task_id=task_id
         ).id
     )
@@ -199,6 +239,7 @@ __all__ = [
     "CLI_SCHEMA",
     "MANIFEST_SCHEMA",
     "MAX_AUTOMATIC_ATTEMPTS",
+    "PL_SELECTIVE_EXPORT_COOKIE_NAME",
     "SELECTIVE_EXPORT_COOKIE_NAME",
     "SPLITTER_VERSION",
     "VALIDATION_SCHEMA",
@@ -213,11 +254,15 @@ __all__ = [
     "DxfSplitReviewPage",
     "DxfSplitRun",
     "DxfSplitRunRead",
+    "PlSplitRunRead",
     "build_dxf_split_run_read",
+    "build_pl_split_run_read",
     "complete_split_review",
+    "create_pl_download_token",
     "create_download_token",
     "decide_split_item",
     "enqueue_dxf_splitting_job",
+    "enqueue_pl_dxf_splitting_job",
     "export_download_path",
     "export_filename",
     "export_preview",
@@ -228,12 +273,19 @@ __all__ = [
     "latest_dxf_split_run",
     "list_split_review_items",
     "manual_review_archive_members",
+    "pl_export_download_path",
+    "pl_export_filename",
+    "pl_export_preview",
+    "pl_storage_members",
     "reconcile_dxf_split_run_for_terminal_job",
     "reconcile_orphan_dxf_split_runs",
     "require_download_token",
+    "require_pl_download_token",
     "review_candidate_archive_members",
     "split_results_archive_members",
     "split_candidate_available",
     "storage_members",
     "run_dxf_splitting",
+    "run_pl_dxf_splitting",
+    "pl_dxf_split_run_for_job",
 ]

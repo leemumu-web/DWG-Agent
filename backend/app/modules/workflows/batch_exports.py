@@ -161,6 +161,39 @@ def _current_split_result_file_ids(
     )
 
 
+def _current_pl_split_result_file_ids(
+    db: Session,
+    workflow: WorkflowRun,
+) -> tuple[list[int], int]:
+    stage = _stage(workflow, "pl_xbox_split")
+    if stage is None or stage.job_id is None or stage.job_attempt is None:
+        return [], 0
+    run = db.scalar(
+        select(DxfSplitRun).where(
+            DxfSplitRun.workflow_run_id == workflow.id,
+            DxfSplitRun.job_id == stage.job_id,
+            DxfSplitRun.job_attempt == stage.job_attempt,
+            DxfSplitRun.status.in_({"completed", "completed_with_review"}),
+        )
+    )
+    if run is None:
+        return [], 0
+    normal_ids = list(
+        db.scalars(
+            select(DxfSplitItem.normal_dxf_file_id)
+            .where(
+                DxfSplitItem.run_id == run.id,
+                DxfSplitItem.family == "PL",
+                DxfSplitItem.automation_route == "auto_accepted",
+                DxfSplitItem.normal_dxf_file_id.is_not(None),
+                DxfSplitItem.weld_allowance_dxf_file_id.is_(None),
+            )
+            .order_by(DxfSplitItem.id)
+        ).all()
+    )
+    return [int(file_id) for file_id in normal_ids], run.auto_accepted_count
+
+
 def _source_excel_file_ids(db: Session, workflow: WorkflowRun) -> list[int]:
     batch = workflow.input_batch
     if batch is None or batch.status != "frozen":
@@ -206,13 +239,17 @@ def category_files(
     workflow: WorkflowRun,
     *,
     require_complete_split_pair: bool = False,
+    pl_normal_only: bool = False,
+    require_complete_pl_normals: bool = False,
 ) -> dict[str, list[StoredFile]]:
-    split_normals, split_allowances, expected_split_pairs = (
+    legacy_normals, split_allowances, expected_split_pairs = (
         _current_split_result_file_ids(
             db,
             workflow,
         )
     )
+    pl_normals, expected_pl_normals = _current_pl_split_result_file_ids(db, workflow)
+    split_normals = pl_normals if pl_normal_only else [*pl_normals, *legacy_normals]
     ids_by_category = {
         "classified_dxf": _current_classified_file_ids(db, workflow),
         "processed_dxf": _current_processed_file_ids(db, workflow),
@@ -252,9 +289,10 @@ def category_files(
     }
     if require_complete_split_pair and (
         expected_split_pairs <= 0
-        or len(split_normals) != expected_split_pairs
+        or len(legacy_normals) != expected_split_pairs
         or len(split_allowances) != expected_split_pairs
-        or len(files["split_result_normal"]) != expected_split_pairs
+        or len(files["split_result_normal"])
+        != expected_split_pairs + expected_pl_normals
         or len(files["split_result_allowance"]) != expected_split_pairs
     ):
         raise AppHTTPException(
@@ -263,10 +301,26 @@ def category_files(
             "正式拆板结果账本不完整，不能生成可能缺图的压缩包。",
             {
                 "expected_pairs": expected_split_pairs,
-                "normal_references": len(split_normals),
+                "normal_references": len(legacy_normals),
                 "allowance_references": len(split_allowances),
-                "available_normals": len(files["split_result_normal"]),
+                "available_normals": len(files["split_result_normal"])
+                - expected_pl_normals,
                 "available_allowances": len(files["split_result_allowance"]),
+            },
+        )
+    if require_complete_pl_normals and (
+        expected_pl_normals <= 0
+        or len(pl_normals) != expected_pl_normals
+        or len(files["split_result_normal"]) != expected_pl_normals
+    ):
+        raise AppHTTPException(
+            409,
+            "PL_SPLIT_EXPORT_INCOMPLETE",
+            "PL 正式拆板结果账本不完整，不能生成可能缺图的压缩包。",
+            {
+                "expected_normals": expected_pl_normals,
+                "normal_references": len(pl_normals),
+                "available_normals": len(files["split_result_normal"]),
             },
         )
     return files
@@ -360,8 +414,15 @@ def create_export(
     selected_split_categories = set(categories).intersection(
         SPLIT_RESULT_CATEGORIES
     )
-    if selected_split_categories and selected_split_categories != set(
-        SPLIT_RESULT_CATEGORIES
+    pl_normal_only = selected_split_categories == {"split_result_normal"}
+    if pl_normal_only:
+        _, expected_pl_normals = _current_pl_split_result_file_ids(db, workflow)
+    else:
+        expected_pl_normals = 0
+    if (
+        selected_split_categories
+        and selected_split_categories != set(SPLIT_RESULT_CATEGORIES)
+        and expected_pl_normals <= 0
     ):
         raise AppHTTPException(
             409,
@@ -371,7 +432,11 @@ def create_export(
     files = category_files(
         db,
         workflow,
-        require_complete_split_pair=bool(selected_split_categories),
+        require_complete_split_pair=(
+            selected_split_categories == set(SPLIT_RESULT_CATEGORIES)
+        ),
+        pl_normal_only=pl_normal_only,
+        require_complete_pl_normals=pl_normal_only,
     )
     manifest = _build_manifest(files, categories)
     token = secrets.token_urlsafe(32)

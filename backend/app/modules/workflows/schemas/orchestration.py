@@ -53,6 +53,7 @@ class WorkflowStageExecutionCreate(BaseModel):
         "excel_stage2",
         "excel_stage3",
         "drawing_processing",
+        "pl_xbox_split",
         "cam_packaging",
         "windows_cam",
         "result_acceptance",

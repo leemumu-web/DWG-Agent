@@ -8,12 +8,15 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.modules.dxf_splitting.interface import (
+    PL_SELECTIVE_EXPORT_COOKIE_NAME,
     SELECTIVE_EXPORT_COOKIE_NAME,
     DxfSplitReviewDecisionRead,
     DxfSplitReviewDecisionWrite,
     build_dxf_split_run_read,
+    build_pl_split_run_read,
     complete_split_review,
     create_download_token,
+    create_pl_download_token,
     decide_split_item,
     export_download_path,
     export_filename,
@@ -21,7 +24,13 @@ from app.modules.dxf_splitting.interface import (
     latest_dxf_split_run,
     list_split_review_items,
     manual_review_archive_members,
+    pl_dxf_split_run_for_job,
+    pl_export_download_path,
+    pl_export_filename,
+    pl_export_preview,
+    pl_storage_members,
     require_download_token,
+    require_pl_download_token,
     review_candidate_archive_members,
     split_candidate_available,
     split_results_archive_members,
@@ -45,6 +54,9 @@ from app.modules.workflows.schemas import (
     DrawingSelectiveExportCreate,
     DrawingSelectiveExportPreviewRead,
     DrawingSelectiveExportRead,
+    PlXboxSelectiveExportCreate,
+    PlXboxSelectiveExportPreviewRead,
+    PlXboxSelectiveExportRead,
 )
 from app.platform.config.settings import settings
 from app.platform.http.dependencies import get_db
@@ -52,6 +64,35 @@ from app.platform.http.envelopes import ok
 from app.platform.http.exceptions import AppHTTPException
 
 router = APIRouter()
+
+
+def _pl_stage(workflow):
+    return next(
+        (item for item in workflow.stages if item.stage_code == "pl_xbox_split"),
+        None,
+    )
+
+
+def _current_pl_split_run(db: Session, workflow):
+    stage = _pl_stage(workflow)
+    if stage is None or stage.job_id is None or stage.job_attempt is None:
+        return None
+    return pl_dxf_split_run_for_job(
+        db,
+        job_id=stage.job_id,
+        attempt=stage.job_attempt,
+    )
+
+
+def _current_pl_split_run_or_404(db: Session, workflow, run_id: int):
+    run = _current_pl_split_run(db, workflow)
+    if run is None or run.id != run_id:
+        raise AppHTTPException(
+            404,
+            "PL_SPLIT_RUN_NOT_CURRENT",
+            "请求的 PL 拆板批次不是工作流当前 attempt。",
+        )
+    return run
 
 
 def _is_current_drawing_attempt(workflow, run) -> bool:
@@ -76,6 +117,199 @@ def _current_split_run_or_404(db: Session, workflow, run_id: int):
             "请求的拆板批次不是工作流当前 attempt。",
         )
     return run
+
+
+@router.get(
+    "/{workflow_id}/pl-xbox-split",
+    summary="读取当前 PL 拆板批次",
+    description="只返回工作流当前 Job attempt 的 PL 拆板与独立校验账本；XBOX 暂不执行拆板。",
+)
+def get_pl_xbox_split(
+    workflow_id: int,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    workflow = load_workflow_detail(db, workflow_id)
+    require_project_member(db, current_user, workflow.project_id)
+    if workflow_needs_sync(db, workflow):
+        sync_workflow_from_jobs(db, workflow)
+        db.commit()
+    run = _current_pl_split_run(db, workflow)
+    return ok(
+        build_pl_split_run_read(db, run) if run is not None else None,
+        request.state.request_id,
+    )
+
+
+@router.get(
+    "/{workflow_id}/pl-xbox-split/runs/{run_id}/selective-export-preview",
+    summary="预览 PL 拆板选择导出",
+    description="统计未通过的 PL 原图；XBOX 类别作为后续实现的稳定接口预留。",
+)
+def preview_pl_selective_export(
+    workflow_id: int,
+    run_id: int,
+    request: Request,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    workflow = load_workflow_detail(db, workflow_id)
+    require_project_member(db, current_user, workflow.project_id)
+    run = _current_pl_split_run_or_404(db, workflow, run_id)
+    if run.status not in {"completed", "completed_with_review"}:
+        raise AppHTTPException(
+            409,
+            "PL_SELECTIVE_EXPORT_UNAVAILABLE",
+            "当前 PL 拆板批次尚未形成可选择导出的分类结果。",
+            {"split_run_id": run.id, "status": run.status},
+        )
+    data = PlXboxSelectiveExportPreviewRead(
+        workflow_id=workflow.id,
+        split_run_id=run.id,
+        categories=pl_export_preview(db, run),
+    )
+    return ok(data, request.state.request_id)
+
+
+@router.post(
+    "/{workflow_id}/pl-xbox-split/runs/{run_id}/selective-exports",
+    status_code=status.HTTP_201_CREATED,
+    summary="创建 PL 拆板选择导出",
+    description="签发绑定当前 PL attempt 的路径级短期下载能力。",
+)
+def create_pl_selective_export(
+    workflow_id: int,
+    run_id: int,
+    payload: PlXboxSelectiveExportCreate,
+    request: Request,
+    response: Response,
+    current_user: CurrentUser,
+    db: Session = Depends(get_db),
+):
+    workflow = load_workflow_detail(db, workflow_id)
+    require_project_member(db, current_user, workflow.project_id)
+    run = _current_pl_split_run_or_404(db, workflow, run_id)
+    if run.status not in {"completed", "completed_with_review"}:
+        raise AppHTTPException(
+            409,
+            "PL_SELECTIVE_EXPORT_UNAVAILABLE",
+            "当前 PL 拆板批次尚未形成可选择导出的分类结果。",
+            {"split_run_id": run.id, "status": run.status},
+        )
+    categories = list(payload.categories)
+    members, source_size_bytes = pl_storage_members(db, run, categories)
+    export_uid, token, expires_at = create_pl_download_token(
+        workflow_id=workflow.id,
+        run_id=run.id,
+        categories=categories,
+        actor_user_id=current_user.id,
+    )
+    download_path = pl_export_download_path(workflow.id, run.id, export_uid)
+    response.set_cookie(
+        PL_SELECTIVE_EXPORT_COOKIE_NAME,
+        token,
+        max_age=settings.workflow_batch_export_ttl_minutes * 60,
+        httponly=True,
+        secure=settings.refresh_cookie_secure_enabled,
+        samesite="lax",
+        path=download_path,
+    )
+    write_audit_log(
+        db,
+        actor_user_id=current_user.id,
+        action="pl_split_selective_exports.create",
+        resource_type="dxf_split_run",
+        resource_id=run.id,
+        after_json={
+            "export_uid": export_uid,
+            "categories": categories,
+            "file_count": len(members),
+            "source_size_bytes": source_size_bytes,
+        },
+        request=request,
+    )
+    db.commit()
+    data = PlXboxSelectiveExportRead(
+        categories=categories,
+        file_count=len(members),
+        source_size_bytes=source_size_bytes,
+        filename=pl_export_filename(workflow.id, run.id),
+        download_url=download_path,
+        token_expires_at=expires_at,
+    )
+    return ok(data, request.state.request_id)
+
+
+@router.get(
+    "/{workflow_id}/pl-xbox-split/runs/{run_id}/selective-exports/{export_uid}/download",
+    summary="流式下载 PL 拆板选择导出",
+    response_class=StreamingResponse,
+    description="使用当前 PL attempt 的路径级能力直接流式生成 ZIP。",
+)
+def download_pl_selective_export(
+    workflow_id: int,
+    run_id: int,
+    export_uid: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    categories, actor_user_id = require_pl_download_token(
+        request.cookies.get(PL_SELECTIVE_EXPORT_COOKIE_NAME),
+        workflow_id=workflow_id,
+        run_id=run_id,
+        export_uid=export_uid,
+    )
+    workflow = load_workflow_detail(db, workflow_id)
+    run = _current_pl_split_run_or_404(db, workflow, run_id)
+    if run.status not in {"completed", "completed_with_review"}:
+        raise AppHTTPException(
+            409,
+            "PL_SELECTIVE_EXPORT_UNAVAILABLE",
+            "当前 PL 拆板批次已变化，请重新创建导出。",
+        )
+    members, _ = pl_storage_members(db, run, categories)
+    transfer = prepare_transfer_in_transaction(
+        db,
+        TransferSpec(
+            direction="outbound",
+            operation="pl_split_selective_export",
+            actor_user_id=actor_user_id,
+            request_id=request.state.request_id,
+            idempotency_key=request.state.request_id,
+            batch_ref=export_uid,
+            original_name=pl_export_filename(workflow.id, run.id),
+        ),
+    )
+    write_audit_log(
+        db,
+        actor_user_id=actor_user_id,
+        action="pl_split_selective_exports.download",
+        resource_type="dxf_split_run",
+        resource_id=run.id,
+        after_json={
+            "export_uid": export_uid,
+            "categories": categories,
+            "file_count": len(members),
+        },
+        request=request,
+    )
+    db.commit()
+    chunks = settle_stream(
+        session_factory_for(db),
+        transfer.transfer_uid,
+        iter_storage_zip(get_storage_backend(), members),
+    )
+    encoded_filename = quote(pl_export_filename(workflow.id, run.id))
+    return StreamingResponse(
+        chunks,
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
+            "Cache-Control": "no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.get(

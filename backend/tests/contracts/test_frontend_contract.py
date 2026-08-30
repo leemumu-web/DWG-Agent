@@ -596,7 +596,10 @@ def test_dxf_split_has_guarded_batch_console_without_inline_review_workbench():
 
     assert "<DrawingProcessingPanel" in detail_source
     assert "selectedStage.stage_code === 'drawing_processing'" in detail_source
-    assert "['dxf_classification', 'drawing_processing'].includes" in detail_source
+    assert (
+        "['dxf_classification', 'drawing_processing', 'pl_xbox_split'].includes"
+        in detail_source
+    )
     assert "isCurrent={selectedIsCurrent}" in detail_source
     assert "开始整批拆板" in panel_source
     assert "drawing_processing" in panel_source
