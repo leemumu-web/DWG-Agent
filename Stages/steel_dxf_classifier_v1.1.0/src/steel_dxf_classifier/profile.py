@@ -20,11 +20,66 @@ REGISTERED_TYPES = frozenset(
 
 _PREFIX_RE = re.compile(r"^([A-Z]{1,12})(.*)$")
 _DIMENSION_BODY_RE = re.compile(r"^[0-9][0-9.*+()\-/ ]*$")
+_NUMBER = r"(?:\d+(?:\.\d*)?|\.\d+)"
+_BOX5_RE = re.compile(
+    rf"^BOX\s*({_NUMBER})\s*[*X×]\s*({_NUMBER})\s*[*X×]\s*({_NUMBER})"
+    rf"\s*[*X×]\s*({_NUMBER})\s*[*X×]\s*({_NUMBER})$",
+    re.IGNORECASE,
+)
+_HK_RE = re.compile(
+    rf"^HK\s*({_NUMBER})\s*-\s*({_NUMBER})\s*-\s*({_NUMBER})"
+    rf"\s*[*X×]\s*({_NUMBER})\s*-\s*({_NUMBER})$",
+    re.IGNORECASE,
+)
+
+
+def _format_dimension(value: float) -> str:
+    return str(int(value)) if value.is_integer() else f"{value:.12g}"
+
+
+def _parse_xbox_business_profile(raw: str, normalized: str) -> ProfileParse | None:
+    match = _BOX5_RE.fullmatch(normalized)
+    dialect = "BOX5"
+    if match is None:
+        match = _HK_RE.fullmatch(normalized)
+        dialect = "HK"
+    if match is None:
+        return None
+    values = tuple(float(part) for part in match.groups())
+    if dialect == "BOX5":
+        height, width, web, flange, extra = values
+    else:
+        height, web, flange, width, extra = values
+    if (
+        min(height, width, web, flange, extra) <= 0.0
+        or height - 2.0 * flange <= 0.0
+        or width - 2.0 * web <= 0.0
+    ):
+        return None
+    canonical = "XBOX" + "*".join(
+        _format_dimension(value)
+        for value in (height, width, web, flange, extra)
+    )
+    return ProfileParse(
+        raw=raw,
+        normalized=canonical,
+        part_type="XBOX",
+        catalog_status="registered",
+        type_source="catalog",
+        profile_source_dialect=dialect,
+        profile_extra=extra,
+    )
 
 
 def parse_profile(raw: str) -> ProfileParse | None:
     normalized = normalize_text(raw).upper()
     if not normalized or any(token in normalized for token in ("..", "/", "\\")):
+        return None
+
+    xbox_profile = _parse_xbox_business_profile(raw, normalized)
+    if xbox_profile is not None:
+        return xbox_profile
+    if _BOX5_RE.fullmatch(normalized) is not None or _HK_RE.fullmatch(normalized) is not None:
         return None
 
     match = _PREFIX_RE.fullmatch(normalized)

@@ -43,14 +43,18 @@ class ProfileParse:
     part_type: str
     catalog_status: str
     type_source: str
+    profile_source_dialect: str | None = None
+    profile_extra: float | None = None
 
-    def to_dict(self) -> dict[str, str]:
+    def to_dict(self) -> dict[str, str | float | None]:
         return {
             "raw": self.raw,
             "normalized": self.normalized,
             "part_type": self.part_type,
             "catalog_status": self.catalog_status,
             "type_source": self.type_source,
+            "profile_source_dialect": self.profile_source_dialect,
+            "profile_extra": self.profile_extra,
         }
 
 
@@ -83,6 +87,8 @@ class ClassificationResult:
     profile_raw: str | None = None
     profile_normalized: str | None = None
     type_source: str | None = None
+    profile_source_dialect: str | None = None
+    profile_extra: float | None = None
     group_key: str = ""
     next_stage_eligible: bool = False
 
@@ -97,6 +103,8 @@ class ClassificationResult:
             "profile_raw": self.profile_raw,
             "profile_normalized": self.profile_normalized,
             "type_source": self.type_source,
+            "profile_source_dialect": self.profile_source_dialect,
+            "profile_extra": self.profile_extra,
             "group_key": self.group_key,
             "next_stage_eligible": self.next_stage_eligible,
         }
