@@ -135,6 +135,7 @@ EXPECTED_PRODUCTION_STAGES = [
         ("classified_dxf",),
         (
             "processed_dxf",
+            "weld_allowance_dxf",
             "split_report",
             "validation_report",
             "split_ledger",

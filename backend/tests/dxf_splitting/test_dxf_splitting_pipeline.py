@@ -402,7 +402,7 @@ def _split_job_fixture(
     classification_stage.job_attempt = 1
     pl_stage.status = "skipped"
     pl_stage.progress = 100
-    pl_stage.output_json = {"reason": "no_pl_candidates"}
+    pl_stage.output_json = {"reason": "no_pl_xbox_candidates"}
     drawing_stage.status = "waiting_input"
     workflow.current_stage = "drawing_processing"
     workflow.status = "waiting_input"

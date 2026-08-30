@@ -36,6 +36,7 @@ EXPECTED_DRAWING_FLOW = {
         "required_inputs": ["classified_dxf"],
         "artifact_types": [
             "processed_dxf",
+            "weld_allowance_dxf",
             "split_report",
             "validation_report",
             "split_ledger",

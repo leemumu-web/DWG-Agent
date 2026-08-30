@@ -379,7 +379,7 @@ def _complete_classification_fixture(
     stage.progress = 100
     pl_stage.status = "skipped"
     pl_stage.progress = 100
-    pl_stage.output_json = {"reason": "no_pl_candidates"}
+    pl_stage.output_json = {"reason": "no_pl_xbox_candidates"}
     drawing.status = "waiting_input"
     workflow_service.recompute_workflow(workflow)
     return run

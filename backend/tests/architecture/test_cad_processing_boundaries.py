@@ -74,6 +74,7 @@ CLASSIFICATION_PUBLIC_CONTRACT = {
     "list_next_stage_inputs",
     "list_pl_split_candidate_inputs",
     "list_split_candidate_inputs",
+    "list_xbox_split_candidate_inputs",
     "run_dxf_classification",
 }
 
@@ -84,6 +85,9 @@ SPLIT_PUBLIC_CONTRACT = {
     "MANIFEST_SCHEMA",
     "MAX_AUTOMATIC_ATTEMPTS",
     "PL_SELECTIVE_EXPORT_COOKIE_NAME",
+    "invoke_xbox_splitter",
+    "run_xbox_splitting",
+    "validate_xbox_result",
     "SELECTIVE_EXPORT_COOKIE_NAME",
     "SPLITTER_VERSION",
     "VALIDATION_SCHEMA",

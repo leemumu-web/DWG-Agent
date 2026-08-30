@@ -39,6 +39,7 @@
 - `test_pl_carrier_unfolding.py` 锁定 PL 载体区间展开。
 - `test_pl_paired_corpus.py`、`test_pl_real_corpus.py` 锁定人工结果对照与真实样本回归。
 - `test_pl_workflow.py` 锁定 PL 独立 Stage、保存后验证、当前 attempt、单产物导出和工作流接入。
+- `test_xbox_workflow.py` 锁定 XBOX 独立 Stage（成对产物）、保存后余量档位验证、PL/XBOX 三读取器互斥、合并 attempt 持久化和工作流接入。
 
 依赖外部 DXF 样本的图纸回归测试,样本缺失时自动跳过;样本根目录可用环境变量指向
 Linux 本地路径(见 `backend/tests/support/sample_roots.py`)。测试不能调用真实

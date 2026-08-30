@@ -533,8 +533,11 @@ def test_pl_job_persists_only_independently_accepted_normal_output(
     workflow = db.get(WorkflowRun, workflow_id)
     assert completed_job is not None and completed_job.status == "succeeded"
     assert run is not None and run.status == "completed"
-    assert run.splitter_version == "0.2.0"
-    assert run.source_contracts_json == {"PL": "project_tekla_pl_dxf_v1"}
+    assert run.splitter_version == "pl-0.2.0;xbox-0.1.0"
+    assert run.source_contracts_json == {
+        "PL": "project_tekla_pl_dxf_v1",
+        "XBOX": "project_tekla_xbox_dxf_v1",
+    }
     assert run.auto_accepted_count == 1
     assert run.manual_review_count == 0
     assert len(run.items) == 1
@@ -622,7 +625,10 @@ def test_pl_http_contract_exports_normal_results_and_failed_sources_only(
     assert status_response.status_code == 200, status_response.text
     public_run = status_response.json()["data"]
     assert public_run["id"] == run.id
-    assert public_run["source_contracts"] == {"PL": "project_tekla_pl_dxf_v1"}
+    assert public_run["source_contracts"] == {
+        "PL": "project_tekla_pl_dxf_v1",
+        "XBOX": "project_tekla_xbox_dxf_v1",
+    }
     assert public_run["split_ledger_file"] is not None
     assert all(item["family"] == "PL" for item in public_run["items"])
     assert all(item["weld_allowance_dxf_file_id"] is None for item in public_run["items"])
@@ -638,7 +644,7 @@ def test_pl_http_contract_exports_normal_results_and_failed_sources_only(
         for item in preview.json()["data"]["categories"]
     ] == [
         ("failed_pl", "未通过的 PL", 1),
-        ("failed_xbox", "未通过的 XBOX（预留）", 0),
+        ("failed_xbox", "未通过的 XBOX", 0),
         ("other", "其他", 0),
     ]
 
