@@ -44,6 +44,8 @@ dependencies = [
     "steel-dxf-split==1.5.2",
     # 独立 PL 拆板 Stage；不依赖 BH/BOX 拆板包。
     "steel-dxf-split-pl==0.2.0",
+    # 独立 XBOX 拆板 Stage；自包含封闭箱核心，不依赖 BH/BOX 拆板包。
+    "steel-dxf-split-xbox==0.1.0",
     # BH 腹/翼板左右进读取（正式 1.2.7，Excel 第二阶段复用其领域内核）。
     "bh-left-right-reader==1.2.7",
     "box-left-right-reader==0.1.0",
@@ -77,6 +79,7 @@ dxf2excel = { path = "../Stages/dxf2excel", editable = true }
 steel-dxf-classifier = { path = "../Stages/steel_dxf_classifier_v1.1.0", editable = true }
 steel-dxf-split = { path = "../Stages/steel_dxf_split_v1.5.2", editable = true }
 steel-dxf-split-pl = { path = "../Stages/steel_dxf_split_pl", editable = true }
+steel-dxf-split-xbox = { path = "../Stages/steel_dxf_split_xbox", editable = true }
 bh-left-right-reader = { path = "../Stages/bh_left_right_reader", editable = true }
 box-left-right-reader = { path = "../Stages/BOX左右进读取", editable = true }
 remnant-drawing-reader = { path = "../Stages/remnant_drawing_reader", editable = true }
