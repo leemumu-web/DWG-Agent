@@ -164,10 +164,10 @@ def _publish_auto_accepted(
         "task_dir": task_dir.name,
         "automation_route": AUTO_ACCEPTED_ROUTE,
         "outputs": {
-            "normal_dxf": normal_dxf.name,
-            "weld_allowance_dxf": weld_dxf.name,
-            "report": report_json.name,
-            "weld_allowance_report": weld_report_json.name,
+            "normal_dxf": normal_dxf.relative_to(output_dir).as_posix(),
+            "weld_allowance_dxf": weld_dxf.relative_to(output_dir).as_posix(),
+            "report": report_json.relative_to(output_dir).as_posix(),
+            "weld_allowance_report": weld_report_json.relative_to(output_dir).as_posix(),
         },
         "pair_proof": pair_proof,
         "native_report": getattr(compiled, "report"),
@@ -200,11 +200,11 @@ def _publish_manual_review(
     if review_path is not None and Path(review_path).is_file():
         review_dxf = task_dir / f"{member}_复核候选.dxf"
         shutil.copyfile(review_path, review_dxf)
-        report_item["outputs"]["review_dxf"] = review_dxf.name
+        report_item["outputs"]["review_dxf"] = review_dxf.relative_to(output_dir).as_posix()
     if report_path is not None and Path(report_path).is_file():
         report_json = task_dir / f"{member}_report.json"
         shutil.copyfile(report_path, report_json)
-        report_item["outputs"]["report"] = report_json.name
+        report_item["outputs"]["report"] = report_json.relative_to(output_dir).as_posix()
     return task_dir, report_item
 
 
