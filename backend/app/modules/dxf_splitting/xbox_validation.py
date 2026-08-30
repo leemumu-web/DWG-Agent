@@ -8,12 +8,10 @@ reopened here without importing the Stage implementation package.
 from __future__ import annotations
 
 import re
-from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import ezdxf
-from ezdxf import path as ezdxf_path
 
 from app.modules.dxf_splitting.validation import StagedSplitSource, ValidatedSplitItem
 
@@ -232,7 +230,7 @@ def validate_xbox_result(
         )
     else:
         checks["plate_count"] = True
-        for index, (length, width, vertices, closed) in enumerate(normal_plates):
+        for index, (_length, _width, vertices, closed) in enumerate(normal_plates):
             if vertices != _PLATE_VERTEX_COUNT or not closed:
                 diagnostics.append("XBOX_OUTLINE_INVALID")
                 findings.append(
@@ -251,7 +249,7 @@ def validate_xbox_result(
 
         # Weld-allowance proof: same widths, lengths extended by the tier value.
         for index, ((length, width, _, _), (weld_length, weld_width, _, _)) in (
-            enumerate(zip(normal_plates, weld_plates))
+            enumerate(zip(normal_plates, weld_plates, strict=True))
         ):
             if abs(weld_width - width) > _DIMENSION_TOLERANCE_MM + 1e-6:
                 diagnostics.append("XBOX_ALLOWANCE_WIDTH_CHANGED")
@@ -284,7 +282,7 @@ def validate_xbox_result(
             actual_widths = sorted(plate[1] for plate in normal_plates)
             if any(
                 abs(e - a) > _DIMENSION_TOLERANCE_MM + 1e-6
-                for e, a in zip(expected_widths, actual_widths)
+                for e, a in zip(expected_widths, actual_widths, strict=True)
             ):
                 diagnostics.append("XBOX_PROFILE_WIDTH_MISMATCH")
                 findings.append(

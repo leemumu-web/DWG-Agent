@@ -406,7 +406,7 @@ def run_pl_dxf_splitting(
             validated_pairs: list[
                 tuple[StagedSplitSource, dict[str, Any], Any]
             ] = []
-            for family, staged, output_directory, matched in family_runs:
+            for family, _staged, output_directory, matched in family_runs:
                 validator = validate_pl_result if family == "PL" else validate_xbox_result
                 for source, report_item in matched:
                     validated_pairs.append(

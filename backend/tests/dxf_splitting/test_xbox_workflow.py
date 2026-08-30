@@ -4,10 +4,15 @@ import json
 import subprocess
 from pathlib import Path
 from types import SimpleNamespace
-from uuid import uuid4
 
 import ezdxf
 from sqlalchemy import select
+from test_pl_workflow import (
+    _classification_item,
+    _configure_local_storage,
+    _prepare_pl_job,
+    _success_report,
+)
 
 from app.modules.dxf_classification import persistence as classification_persistence
 from app.modules.dxf_classification.interface import (
@@ -20,13 +25,6 @@ from app.modules.dxf_splitting import pl_execution, xbox_adapter
 from app.modules.dxf_splitting.models import DxfSplitRun
 from app.modules.dxf_splitting.validation import StagedSplitSource
 from app.modules.dxf_splitting.xbox_validation import validate_xbox_result
-from test_pl_workflow import (
-    _classification_item,
-    _success_report,
-    _configure_local_storage,
-    _prepare_pl_job,
-    _save_test_file,
-)
 
 _XBOX_PROFILE = "XBOX300*500*50*30*50"
 _WEB_WIDTH = 240.0  # 300 - 2*30

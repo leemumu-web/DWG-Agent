@@ -101,6 +101,11 @@ def run_dxf_splitting(job_id: int, **kwargs) -> None:
 
 def run_pl_dxf_splitting(job_id: int, **kwargs) -> None:
     """执行一个独立 PL 拆板 Job（worker 侧，按 status+attempt 守卫）。"""
+    from app.modules.dxf_splitting.pl_execution import run_pl_dxf_splitting as run
+
+    run(job_id, **kwargs)
+
+
 def run_xbox_splitting(job_id, **kwargs):
     """Worker 侧执行入口（PL+XBOX 合并编排）。"""
     from app.modules.dxf_splitting.pl_execution import run_pl_dxf_splitting as run
@@ -120,11 +125,6 @@ def validate_xbox_result(*args, **kwargs):
     from app.modules.dxf_splitting.xbox_validation import validate_xbox_result as validate_impl
 
     return validate_impl(*args, **kwargs)
-
-
-    from app.modules.dxf_splitting.pl_execution import run_pl_dxf_splitting as run
-
-    run(job_id, **kwargs)
 
 
 def pl_dxf_split_run_for_job(db, *, job_id: int, attempt: int) -> DxfSplitRun | None:

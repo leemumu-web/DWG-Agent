@@ -11,8 +11,8 @@ from app.modules.dxf_classification.interface import (
     ClassificationError,
     latest_classification_run,
     list_pl_split_candidate_inputs,
-    list_xbox_split_candidate_inputs,
     list_split_candidate_inputs,
+    list_xbox_split_candidate_inputs,
     load_bh_stage2_classification_batch,
     load_box_stage2_classification_batch,
 )

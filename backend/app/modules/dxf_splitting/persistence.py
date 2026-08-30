@@ -34,17 +34,16 @@ from app.modules.dxf_splitting.pl_adapter import (
     PL_SPLITTER_VERSION,
     PlSplitError,
 )
-from app.modules.dxf_splitting.xbox_adapter import (
-    XBOX_REPORT_SCHEMA,
-    XBOX_SOURCE_CONTRACT_ID,
-    XBOX_SPLITTER_VERSION,
-    XboxSplitAdapterError,
-)
 from app.modules.dxf_splitting.schemas import (
     DxfSplitExcelHandoff,
     DxfSplitHandoffDrawing,
 )
 from app.modules.dxf_splitting.validation import ValidatedSplitItem
+from app.modules.dxf_splitting.xbox_adapter import (
+    XBOX_REPORT_SCHEMA,
+    XBOX_SOURCE_CONTRACT_ID,
+    XBOX_SPLITTER_VERSION,
+)
 from app.modules.files.interface import (
     StoredFile,
     complete_transfer_in_transaction,
