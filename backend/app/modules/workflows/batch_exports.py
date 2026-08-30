@@ -194,6 +194,48 @@ def _current_pl_split_result_file_ids(
     return [int(file_id) for file_id in normal_ids], run.auto_accepted_count
 
 
+def _current_xbox_split_result_file_ids(
+    db: Session,
+    workflow: WorkflowRun,
+) -> tuple[list[int], list[int], int]:
+    """Current-attempt XBOX pairs; both artifacts must exist for a pair."""
+    stage = _stage(workflow, "pl_xbox_split")
+    if stage is None or stage.job_id is None or stage.job_attempt is None:
+        return [], [], 0
+    run = db.scalar(
+        select(DxfSplitRun).where(
+            DxfSplitRun.workflow_run_id == workflow.id,
+            DxfSplitRun.job_id == stage.job_id,
+            DxfSplitRun.job_attempt == stage.job_attempt,
+            DxfSplitRun.status.in_({"completed", "completed_with_review"}),
+        )
+    )
+    if run is None:
+        return [], [], 0
+    rows = db.execute(
+        select(
+            DxfSplitItem.normal_dxf_file_id,
+            DxfSplitItem.weld_allowance_dxf_file_id,
+        )
+        .where(
+            DxfSplitItem.run_id == run.id,
+            DxfSplitItem.family == "XBOX",
+            DxfSplitItem.automation_route == "auto_accepted",
+        )
+        .order_by(DxfSplitItem.id)
+    ).all()
+    pairs = [
+        (int(normal_id), int(allowance_id))
+        for normal_id, allowance_id in rows
+        if normal_id is not None and allowance_id is not None
+    ]
+    return (
+        [normal_id for normal_id, _ in pairs],
+        [allowance_id for _, allowance_id in pairs],
+        len(pairs),
+    )
+
+
 def _source_excel_file_ids(db: Session, workflow: WorkflowRun) -> list[int]:
     batch = workflow.input_batch
     if batch is None or batch.status != "frozen":
@@ -249,7 +291,15 @@ def category_files(
         )
     )
     pl_normals, expected_pl_normals = _current_pl_split_result_file_ids(db, workflow)
-    split_normals = pl_normals if pl_normal_only else [*pl_normals, *legacy_normals]
+    xbox_normals, xbox_allowances, expected_xbox_pairs = (
+        _current_xbox_split_result_file_ids(db, workflow)
+    )
+    split_normals = (
+        pl_normals
+        if pl_normal_only
+        else [*pl_normals, *legacy_normals, *xbox_normals]
+    )
+    split_allowances = [*split_allowances, *xbox_allowances]
     ids_by_category = {
         "classified_dxf": _current_classified_file_ids(db, workflow),
         "processed_dxf": _current_processed_file_ids(db, workflow),
@@ -288,12 +338,15 @@ def category_files(
         for category in EXPORT_CATEGORY_ORDER
     }
     if require_complete_split_pair and (
-        expected_split_pairs <= 0
+        expected_split_pairs + expected_xbox_pairs <= 0
         or len(legacy_normals) != expected_split_pairs
-        or len(split_allowances) != expected_split_pairs
+        or len(legacy_normals) + len(xbox_normals)
+        != expected_split_pairs + expected_xbox_pairs
+        or len(split_allowances) != expected_split_pairs + expected_xbox_pairs
         or len(files["split_result_normal"])
-        != expected_split_pairs + expected_pl_normals
-        or len(files["split_result_allowance"]) != expected_split_pairs
+        != expected_split_pairs + expected_xbox_pairs + expected_pl_normals
+        or len(files["split_result_allowance"])
+        != expected_split_pairs + expected_xbox_pairs
     ):
         raise AppHTTPException(
             409,
@@ -417,6 +470,14 @@ def create_export(
     pl_normal_only = selected_split_categories == {"split_result_normal"}
     if pl_normal_only:
         _, expected_pl_normals = _current_pl_split_result_file_ids(db, workflow)
+        _, _, expected_xbox_pairs = _current_xbox_split_result_file_ids(db, workflow)
+        if expected_xbox_pairs > 0:
+            raise AppHTTPException(
+                409,
+                "DXF_SPLIT_EXPORT_XBOX_PAIR_REQUIRED",
+                "XBOX 拆板结果为原长+余量成对产物，必须同时导出两个类别。",
+                {"expected_xbox_pairs": expected_xbox_pairs},
+            )
     else:
         expected_pl_normals = 0
     if (

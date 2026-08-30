@@ -122,7 +122,7 @@ def _current_split_run_or_404(db: Session, workflow, run_id: int):
 @router.get(
     "/{workflow_id}/pl-xbox-split",
     summary="读取当前 PL 拆板批次",
-    description="只返回工作流当前 Job attempt 的 PL 拆板与独立校验账本；XBOX 暂不执行拆板。",
+    description="只返回工作流当前 Job attempt 的 PL/XBOX 拆板与独立校验账本。"
 )
 def get_pl_xbox_split(
     workflow_id: int,
@@ -145,7 +145,7 @@ def get_pl_xbox_split(
 @router.get(
     "/{workflow_id}/pl-xbox-split/runs/{run_id}/selective-export-preview",
     summary="预览 PL 拆板选择导出",
-    description="统计未通过的 PL 原图；XBOX 类别作为后续实现的稳定接口预留。",
+    description="统计未通过的 PL/XBOX 分类原图。",
 )
 def preview_pl_selective_export(
     workflow_id: int,
