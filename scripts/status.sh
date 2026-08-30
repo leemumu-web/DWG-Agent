@@ -13,7 +13,7 @@ ALL_OK=true
 COMPOSE_RUNNING_SERVICES=""
 if command -v docker >/dev/null 2>&1; then
     COMPOSE_RUNNING_SERVICES="$(
-        cd "$PROJECT_ROOT" && docker compose ps --status running --services 2>/dev/null || true
+        cd "$PROJECT_ROOT" && dck compose ps --status running --services 2>/dev/null || true
     )"
 fi
 

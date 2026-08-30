@@ -385,3 +385,93 @@ export interface WorkflowRetentionExport {
   created_at: string;
   updated_at: string;
 }
+
+// ---- PL / XBOX 拆板阶段（stage_code=pl_xbox_split）----
+// 结构镜像 DxfSplitRun / DxfSplitItem，专门承载 PL 与 XBOX 两个工程族
+// （板件 / 箱型，独立类型、不并入 BOX/BH）。这些类型定义前端与后端之间
+// 的契约：后端实现 /pl-xbox-split 端点时必须按此形状返回。
+
+export interface PlXboxSplitItem {
+  id: number;
+  drawing_id?: number | null;
+  classification_item_id: number;
+  source_file_id: number;
+  source_name: string;
+  classification_disposition: string;
+  classification_part_type?: string | null;
+  type_resolution: 'classifier_confirmed' | 'splitter_detected' | 'unresolved';
+  part_type: string;
+  profile_normalized?: string | null;
+  family?: 'PL' | 'XBOX' | null;
+  source_contract_id?: string | null;
+  automation_route: 'auto_accepted' | 'manual_review';
+  disposition: string;
+  normal_dxf_file_id?: number | null;
+  weld_allowance_dxf_file_id?: number | null;
+  diagnostics: string[];
+  validation: Record<string, unknown>;
+}
+
+export interface PlXboxSplitRun {
+  id: number;
+  workflow_run_id: number;
+  status: 'running' | 'completed' | 'completed_with_review' | 'failed';
+  splitter_version: string;
+  cli_schema?: string | null;
+  validation_schema?: string | null;
+  input_manifest_sha256: string;
+  input_count: number;
+  processed_count: number;
+  failed_count: number;
+  reviewed_count: number;
+  elapsed_seconds: number;
+  throughput_per_minute?: number | null;
+  estimated_remaining_seconds?: number | null;
+  auto_accepted_count: number;
+  manual_review_count: number;
+  classifier_confirmed_count: number;
+  splitter_detected_count: number;
+  unresolved_count: number;
+  classification_input_count: number;
+  classification_only_count: number;
+  classification_only_type_counts: Record<string, number>;
+  source_contracts: Record<string, string>;
+  split_ledger_file?: import('../files').StoredFile | null;
+  split_manifest_file?: import('../files').StoredFile | null;
+  job: import('../jobs').Job;
+  items: PlXboxSplitItem[];
+  error_code?: string | null;
+  error_message?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type PlXboxSelectiveExportCategory =
+  | 'failed_pl'
+  | 'failed_xbox'
+  | 'other';
+
+export interface PlXboxSelectiveExportCategorySummary {
+  key: PlXboxSelectiveExportCategory;
+  label: string;
+  file_count: number;
+  size_bytes: number;
+  available: boolean;
+}
+
+export interface PlXboxSelectiveExportPreview {
+  workflow_id: number;
+  split_run_id: number;
+  categories: PlXboxSelectiveExportCategorySummary[];
+}
+
+export interface PlXboxSelectiveExport {
+  categories: PlXboxSelectiveExportCategory[];
+  file_count: number;
+  source_size_bytes: number;
+  filename: string;
+  download_url: string;
+  token_expires_at: string;
+}

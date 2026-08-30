@@ -1,0 +1,13 @@
+# Local-only overlay for Navicat/MySQL handbook debugging.
+# Keep this file out of production deployment commands.
+services:
+  mysql:
+    networks:
+      - internal
+      - handbook_debug
+    ports:
+      - "127.0.0.1:${MYSQL_DEBUG_PORT:-13306}:3306"
+
+networks:
+  handbook_debug:
+    driver: bridge

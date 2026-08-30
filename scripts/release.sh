@@ -31,7 +31,7 @@ release_env_value() {
 
 release_verify_protected_image() {
     local image=$1
-    docker run --rm --network none --read-only \
+    $DOCKER_BIN run --rm --network none --read-only \
         --tmpfs /tmp:rw,noexec,nosuid,size=256m \
         --tmpfs /home/appuser:rw,nosuid,size=128m,uid=1000,gid=1000,mode=0700 \
         --entrypoint sh "$image" -c '
@@ -112,7 +112,7 @@ release_verify_oda_roundtrip() {
     # Match the hardened production workers: /tmp stays noexec while the
     # AppImage extracts onto the executable /app/var volume selected by TMPDIR.
     # The anonymous volume is removed automatically with the container.
-    docker run --rm --network none --read-only \
+    $DOCKER_BIN run --rm --network none --read-only \
         --tmpfs /tmp:rw,noexec,nosuid,size=256m \
         --tmpfs /work:rw,nosuid,size=64m,uid=1000,gid=1000,mode=0755 \
         --tmpfs /home/appuser:rw,nosuid,size=128m,uid=1000,gid=1000,mode=0700 \
@@ -203,10 +203,10 @@ release_bundle() {
             build_args+=(--build-arg "PYPI_INDEX_URL=$PYPI_INDEX_URL")
         fi
         if ((${#build_args[@]})); then
-        docker compose --project-directory "$PROJECT_ROOT" \
+        $DOCKER_BIN compose --project-directory "$PROJECT_ROOT" \
                 --env-file "$PROJECT_ROOT/.env.docker" build "${build_args[@]}" backend-api nginx
         else
-            docker compose --project-directory "$PROJECT_ROOT" \
+            $DOCKER_BIN compose --project-directory "$PROJECT_ROOT" \
                 --env-file "$PROJECT_ROOT/.env.docker" build backend-api nginx
         fi
     fi
@@ -217,7 +217,7 @@ release_bundle() {
     frontend_source=$(release_env_value DWG_AGENT_FRONTEND_IMAGE)
     backend_source=${backend_source:-dwg-agent-backend:local}
     frontend_source=${frontend_source:-dwg-agent-frontend:local}
-    local -a compose_cmd=(docker compose --project-directory "$PROJECT_ROOT" \
+    local -a compose_cmd=($DOCKER_BIN compose --project-directory "$PROJECT_ROOT" \
         --env-file "$PROJECT_ROOT/.env.docker")
     mysql_source=$("${compose_cmd[@]}" config --format json \
         | "$PROJECT_ROOT/backend/.venv/bin/python" -c \
@@ -229,14 +229,14 @@ release_bundle() {
     frontend_release="dwg-agent-frontend:${version}"
     mysql_release="dwg-agent-mysql:${version}"
     minio_release="dwg-agent-minio:${version}"
-    docker image inspect "$backend_source" >/dev/null
-    docker image inspect "$frontend_source" >/dev/null
-    docker image inspect "$mysql_source" >/dev/null
-    docker image inspect "$minio_source" >/dev/null
-    docker image tag "$backend_source" "$backend_release"
-    docker image tag "$frontend_source" "$frontend_release"
-    docker image tag "$mysql_source" "$mysql_release"
-    docker image tag "$minio_source" "$minio_release"
+    $DOCKER_BIN image inspect "$backend_source" >/dev/null
+    $DOCKER_BIN image inspect "$frontend_source" >/dev/null
+    $DOCKER_BIN image inspect "$mysql_source" >/dev/null
+    $DOCKER_BIN image inspect "$minio_source" >/dev/null
+    $DOCKER_BIN image tag "$backend_source" "$backend_release"
+    $DOCKER_BIN image tag "$frontend_source" "$frontend_release"
+    $DOCKER_BIN image tag "$mysql_source" "$mysql_release"
+    $DOCKER_BIN image tag "$minio_source" "$minio_release"
     release_verify_protected_image "$backend_release"
     release_verify_oda_roundtrip "$backend_release"
 
@@ -273,10 +273,10 @@ release_bundle() {
     : > "$payload/images.manifest"
     local image_ref image_id
     for image_ref in "${images[@]}"; do
-        image_id=$(docker image inspect "$image_ref" --format '{{.Id}}')
+        image_id=$($DOCKER_BIN image inspect "$image_ref" --format '{{.Id}}')
         printf '%s\t%s\n' "$image_ref" "$image_id" >> "$payload/images.manifest"
     done
-    docker image save -o "$payload/images.tar" "${images[@]}"
+    $DOCKER_BIN image save -o "$payload/images.tar" "${images[@]}"
     "$PROJECT_ROOT/backend/.venv/bin/python" \
         "$PROJECT_ROOT/scripts/release/verify_image_archive.py" \
         --archive "$payload/images.tar" \

@@ -26,9 +26,9 @@ require_env_files
 step "1/7 清理旧运行并更新环境"
 COMPOSE_CONTAINER_IDS=""
 if command -v docker >/dev/null 2>&1 \
-    && docker info >/dev/null 2>&1 \
+    && dck info >/dev/null 2>&1 \
     && [ -f "$PROJECT_ROOT/.env.docker" ]; then
-    COMPOSE_CONTAINER_IDS="$(docker compose --project-directory "$PROJECT_ROOT" \
+    COMPOSE_CONTAINER_IDS="$(dck compose --project-directory "$PROJECT_ROOT" \
         --env-file "$PROJECT_ROOT/.env.docker" --profile workers \
         ps --all -q 2>/dev/null || true)"
 fi

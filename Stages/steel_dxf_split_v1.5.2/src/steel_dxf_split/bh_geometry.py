@@ -878,15 +878,25 @@ def estimate_flange_developments(
             <= manufacturing_tolerance_mm
             for value in raw
         )
+        source_course_flags = tuple(
+            item.get("method") == "source_course_pair"
+            and bool(item.get("straight"))
+            and max(raw) - min(raw)
+            <= max(5.0, 0.005 * nominal_length)
+            for item in ordered_details
+        )
         targets = tuple(
             source_projection_length
             if direct
+            else value
+            if source_course
             else quantize_derived_flange_length(value, development_policy)
             if profile_authorized and valid
             else value
-            for value, direct, valid in zip(
+            for value, direct, source_course, valid in zip(
                 raw,
                 direct_projection_flags,
+                source_course_flags,
                 valid_straight_strips,
             )
         )
@@ -896,6 +906,7 @@ def estimate_flange_developments(
             "raw_lengths_mm": list(raw),
             "quantized_lengths_mm": list(targets),
             "direct_projection_flags": list(direct_projection_flags),
+            "source_course_flags": list(source_course_flags),
             "valid_straight_strip_flags": list(valid_straight_strips),
             "strip_tolerance_mm": strip_tolerance,
             "candidate_count": len(raw),
@@ -920,9 +931,10 @@ def estimate_flange_developments(
     )
     equal_source_course_pair = (
         all(item.get("method") == "source_course_pair" for item in ordered_details)
-        and max(raw_lengths) - min(raw_lengths) <= manufacturing_tolerance_mm
+        and max(raw_lengths) - min(raw_lengths)
+        <= max(1.0, manufacturing_tolerance_mm)
         and source_projection_length - max(raw_lengths)
-        > max(5.0, 0.005 * nominal_length)
+        > max(1.0, manufacturing_tolerance_mm)
     )
     if equal_source_course_pair:
         # Two equal plate-edge/bevel-course pairs represent one unique flange
@@ -956,8 +968,8 @@ def estimate_flange_developments(
             certificate=certificate,
         ))
     if max(raw_lengths) - min(raw_lengths) > max(
-        5.0,
-        0.005 * nominal_length,
+        1.0,
+        manufacturing_tolerance_mm,
     ):
         strip_tolerance = max(
             float(manufacturing_tolerance_mm),
@@ -990,15 +1002,25 @@ def estimate_flange_developments(
             <= manufacturing_tolerance_mm
             for value in raw_lengths
         )
+        source_course_flags = tuple(
+            item.get("method") == "source_course_pair"
+            and bool(item.get("straight"))
+            and max(raw_lengths) - min(raw_lengths)
+            <= max(5.0, 0.005 * nominal_length)
+            for item in ordered_details
+        )
         targets = tuple(
             source_projection_length
             if direct
+            else value
+            if source_course
             else quantize_derived_flange_length(value, development_policy)
             if profile_authorized and valid
             else value
-            for value, direct, valid in zip(
+            for value, direct, source_course, valid in zip(
                 raw_lengths,
                 direct_projection_flags,
+                source_course_flags,
                 valid_straight_strips,
             )
         )
@@ -1008,6 +1030,7 @@ def estimate_flange_developments(
             "raw_lengths_mm": list(raw_lengths),
             "quantized_lengths_mm": list(targets),
             "direct_projection_flags": list(direct_projection_flags),
+            "source_course_flags": list(source_course_flags),
             "valid_straight_strip_flags": list(valid_straight_strips),
             "strip_tolerance_mm": strip_tolerance,
             "source_projection_length_mm": source_projection_length,

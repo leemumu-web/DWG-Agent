@@ -558,6 +558,25 @@ def _transverse_center(bounds: tuple[float, float, float, float], long_axis: str
     return (bounds[1] + bounds[3]) / 2.0 if long_axis == "x" else (bounds[0] + bounds[2]) / 2.0
 
 
+def _material_flange_span_delta(
+    first: float,
+    second: float,
+    manufacturing_tolerance_mm: float,
+) -> bool:
+    """Return whether two complete source-course spans are materially different.
+
+    Source courses are already direct DXF lines admitted by a paired-overlap
+    proof.  A tolerance that grows with the member length therefore hides real
+    end offsets on long members.  Keep the comparison in physical millimetres,
+    with one millimetre covering integer display/export noise.
+    """
+
+    return abs(float(first) - float(second)) > max(
+        1.0,
+        float(manufacturing_tolerance_mm),
+    )
+
+
 def _main_flange_side_spans(
     faces: list[Polygon],
     web_polygon: Polygon,
@@ -1384,8 +1403,11 @@ def lower_bh_assembly(
     )
     distinct_source_course_spans = (
         len(course_span_values) == 2
-        and (course_span_values[1] - course_span_values[0])
-        > max(5.0, 0.005 * metadata.nominal_length)
+        and _material_flange_span_delta(
+            course_span_values[0],
+            course_span_values[1],
+            manufacturing_tolerance_mm,
+        )
     )
     equivalent_source_course_spans = (
         len(course_span_values) == 2
@@ -1414,6 +1436,18 @@ def lower_bh_assembly(
         hypothesis_id=hypothesis_id,
     )
 
+    # A nested assembly projection can expose a shorter end step which is not
+    # a shorter flat plate (cb-117 is the corpus regression).  Keep the source
+    # pair visible in diagnostics, but do not let that projection authorize two
+    # fabrication lengths.
+    projection_artifact = (
+        flange_selection.get("nested_projection_classification")
+        == "projection_artifact"
+    )
+    source_course_evidence_authorized = (
+        complete_source_course_spans and not projection_artifact
+    )
+
     web_bounds = web_result.polygon.bounds
     actual_web_transverse = (
         web_bounds[3] - web_bounds[1] if web_axis == "x" else web_bounds[2] - web_bounds[0]
@@ -1424,14 +1458,14 @@ def lower_bh_assembly(
         first_bounds[2] - first_bounds[0] if flange_axis == "x" else first_bounds[3] - first_bounds[1]
     )
     source_projection_overrun = (
-        complete_source_course_spans
+        source_course_evidence_authorized
         and source_projection_length - max(course_span_values)
-        > max(5.0, 0.005 * metadata.nominal_length)
+        > max(1.0, manufacturing_tolerance_mm)
     )
     equal_course_outer_endpoint_spans: dict[str, float] = {}
     distinct_course_outer_endpoint_spans: dict[str, float] = {}
     if (
-        complete_source_course_spans
+        source_course_evidence_authorized
         and flange_development_policy.authorizes_profile(development_profile_id)
     ):
         raw_outer_spans = _source_backed_main_flange_side_spans(
@@ -1489,7 +1523,7 @@ def lower_bh_assembly(
         distinct_course_outer_endpoint_spans
     )
     use_source_course_spans = (
-        complete_source_course_spans
+        source_course_evidence_authorized
         and not distinct_face_spans
         and (
             distinct_source_course_spans
@@ -1514,11 +1548,21 @@ def lower_bh_assembly(
         else face_main_flange_spans
     )
     span_values = tuple(sorted(main_flange_spans.values()))
-    distinct_main_flange_spans = (
-        len(span_values) == 2
-        and (span_values[1] - span_values[0])
-        > max(5.0, 0.005 * metadata.nominal_length)
-    )
+    if len(span_values) != 2:
+        distinct_main_flange_spans = False
+    elif use_source_course_spans and not projection_artifact:
+        distinct_main_flange_spans = _material_flange_span_delta(
+            span_values[0],
+            span_values[1],
+            manufacturing_tolerance_mm,
+        )
+    else:
+        # Preserve the established face/projection rule when source-course
+        # evidence is unavailable or explicitly classified as an artifact.
+        distinct_main_flange_spans = (
+            span_values[1] - span_values[0]
+            > max(5.0, 0.005 * metadata.nominal_length)
+        )
     outer_endpoint_projection_recovery = (
         use_source_course_spans
         and (
