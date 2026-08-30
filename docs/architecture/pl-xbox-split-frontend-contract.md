@@ -1,6 +1,7 @@
 # PL / XBOX 拆板阶段接口与 XBOX 交接
 
 > 更新日期：2026-08-30
+> **2026-08-30 更新**：XBOX 已作为独立自包含 Stage（`steel_dxf_split_xbox`）接入本阶段，见 `docs/architecture/xbox-split-stage.md`；第 5 节为当时的接入规划，现已按其落地。
 > 当前状态：PL 已实现并接入生产工作流；XBOX 仅保留分类、类型和接口位，本版本不执行 XBOX 拆板。
 
 ## 1. 当前生产链路
