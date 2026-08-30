@@ -164,6 +164,14 @@ def _transverse_residual(observed: float, expected: float, *, role: str) -> floa
     return abs(delta)
 
 
+# Two axis interpretations are indistinguishable when their normalized
+# residuals agree within this bound.  Real members are elongated by many
+# orders more; a Tekla single-part drawing always lays the member along the
+# horizontal axis, so a near-square projection is axis-ambiguous rather than
+# rotated evidence.
+_AXIS_AMBIGUITY_TOLERANCE = 1e-3
+
+
 def _dimension_residual(
     block,
     nominal_length: float,
@@ -177,6 +185,13 @@ def _dimension_residual(
     rotated = abs(block.bbox.height - nominal_length) / max(nominal_length, 1.0) + _transverse_residual(
         block.bbox.width, transverse, role=role
     )
+    if abs(direct - rotated) <= _AXIS_AMBIGUITY_TOLERANCE:
+        # The member axis is horizontal in a Tekla export.  On a near-square
+        # projection the two readings are statistically indistinguishable, so
+        # the web over-depth asymmetry must not let sub-millimetre bbox noise
+        # pick the rotated reading (which would mismatch the flange view and
+        # incur a spurious axis penalty).
+        return (min(direct, rotated), "x")
     return (direct, "x") if direct <= rotated else (rotated, "y")
 
 
