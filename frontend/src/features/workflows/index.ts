@@ -4,6 +4,7 @@ export { WorkflowsPage } from './WorkflowsPage';
 export { WorkflowDetailPage } from './WorkflowDetailPage';
 export { WorkflowRetentionControl } from './WorkflowRetentionControl';
 export { DrawingProcessingPanel } from './DrawingProcessingPanel';
+export { PlXboxDrawingProcessingPanel } from './PlXboxDrawingProcessingPanel';
 export { WORKFLOW_STATUS } from './model/workflowPresentation';
 export * from './workflow-inputs.api';
 export * from './workflows.api';

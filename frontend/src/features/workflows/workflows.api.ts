@@ -27,6 +27,10 @@ import type {
   WorkflowExcelStage3Preflight,
   WorkflowRetentionExport,
   WorkflowRetentionPreview,
+  PlXboxSplitRun,
+  PlXboxSelectiveExport,
+  PlXboxSelectiveExportCategory,
+  PlXboxSelectiveExportPreview,
 } from './workflow';
 
 export interface WorkflowListParams {
@@ -367,6 +371,53 @@ export async function getDxfSplitRun(workflowId: number) {
     `/api/v1/workflows/${workflowId}/drawing-processing`,
   );
   return response.data.data;
+}
+
+export async function getPlXboxSplitRun(workflowId: number) {
+  const response = await apiClient.get<ApiEnvelope<PlXboxSplitRun | null>>(
+    `/api/v1/workflows/${workflowId}/pl-xbox-split`,
+  );
+  return response.data.data;
+}
+
+export async function getPlXboxSelectiveExportPreview(
+  workflowId: number,
+  runId: number,
+) {
+  const response = await apiClient.get<ApiEnvelope<PlXboxSelectiveExportPreview>>(
+    `/api/v1/workflows/${workflowId}/pl-xbox-split/runs/${runId}/selective-export-preview`,
+  );
+  return response.data.data;
+}
+
+export async function createPlXboxSelectiveExport(
+  workflowId: number,
+  runId: number,
+  categories: PlXboxSelectiveExportCategory[],
+) {
+  const response = await apiClient.post<ApiEnvelope<PlXboxSelectiveExport>>(
+    `/api/v1/workflows/${workflowId}/pl-xbox-split/runs/${runId}/selective-exports`,
+    { categories },
+  );
+  return response.data.data;
+}
+
+export async function downloadPlXboxSelectiveExport(
+  prepared: PlXboxSelectiveExport,
+  onProgress?: TransferProgressHandler,
+  signal?: AbortSignal,
+) {
+  if (!prepared.download_url) {
+    throw new Error('本次选择导出没有可用的下载地址');
+  }
+  return downloadArchive(
+    prepared.download_url,
+    prepared.filename,
+    'PL/XBOX 选择导出下载失败',
+    onProgress,
+    prepared.source_size_bytes,
+    signal,
+  );
 }
 
 export async function getDrawingSelectiveExportPreview(

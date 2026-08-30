@@ -43,6 +43,7 @@ import { DrawingProcessingPanel } from './DrawingProcessingPanel';
 import { ExcelStage2Panel } from './ExcelStage2Panel';
 import { ExcelStage3Panel } from './ExcelStage3Panel';
 import { FutureStageNotice } from './FutureStageNotice';
+import { PlXboxDrawingProcessingPanel } from './PlXboxDrawingProcessingPanel';
 import { ProductionInputPanel } from './ProductionInputPanel';
 import { WorkflowArtifactSummary } from './WorkflowArtifactSummary';
 import { WorkflowRetentionControl } from './WorkflowRetentionControl';
@@ -115,14 +116,16 @@ export function WorkflowDetailPage() {
     && selectedStage.stage_code === authoritativeCurrentStage.stage_code,
   );
   const stageById = new Map((detail?.stages ?? []).map((stage) => [stage.id, stage]));
-  // Attempt 世代过滤：拆板（drawing_processing）阶段的产物必须匹配当前
-  // stage 的 job_id 与 job_attempt，旧世代产物被隐藏以免与正式结果混淆；
-  // 其他阶段不过滤（产物不按世代区分）。
+  // Attempt 世代过滤：拆板（drawing_processing）与 PL/XBOX 拆板
+  // （pl_xbox_split）阶段的产物必须匹配当前 stage 的 job_id 与
+  // job_attempt，旧世代产物被隐藏以免与正式结果混淆；其他阶段不过滤
+  // （产物不按世代区分）。
   const visibleArtifacts = (detail?.artifacts ?? []).filter((artifact) => {
     const artifactStage = typeof artifact.stage_run_id === 'number'
       ? stageById.get(artifact.stage_run_id)
       : undefined;
-    if (artifactStage?.stage_code !== 'drawing_processing') return true;
+    if (!artifactStage) return true;
+    if (!['drawing_processing', 'pl_xbox_split'].includes(artifactStage.stage_code)) return true;
     if (!['succeeded', 'waiting_review'].includes(artifactStage.status)) return false;
     return artifact.metadata_json?.job_id === artifactStage.job_id
       && artifact.metadata_json?.job_attempt === artifactStage.job_attempt;
@@ -375,7 +378,7 @@ export function WorkflowDetailPage() {
                 />
               )}
 
-              {!['dxf_classification', 'drawing_processing'].includes(
+              {!['dxf_classification', 'drawing_processing', 'pl_xbox_split'].includes(
                 selectedStage.stage_code,
               ) && !isWaitingLaunchStage(selectedStage.stage_code) && (
                 <WorkflowStageArchiveCard
@@ -408,6 +411,17 @@ export function WorkflowDetailPage() {
               )}
               {selectedStage.stage_code === 'drawing_processing' && (
                 <DrawingProcessingPanel
+                  workflowId={detail.id}
+                  stage={selectedStage}
+                  isCurrent={selectedIsCurrent}
+                  onChanged={() => {
+                    setSelectedStageCode(selectedStage.stage_code);
+                    refresh();
+                  }}
+                />
+              )}
+              {selectedStage.stage_code === 'pl_xbox_split' && (
+                <PlXboxDrawingProcessingPanel
                   workflowId={detail.id}
                   stage={selectedStage}
                   isCurrent={selectedIsCurrent}
