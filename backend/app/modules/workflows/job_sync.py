@@ -177,6 +177,7 @@ def _skip_empty_split_stage(
         latest_classification_run,
         list_pl_split_candidate_inputs,
         list_split_candidate_inputs,
+        list_xbox_split_candidate_inputs,
     )
 
     classification = latest_classification_run(db, workflow.id)
@@ -214,18 +215,19 @@ def _skip_empty_split_stage(
         return True
     if following_stage.stage_code != "pl_xbox_split":
         return False
-    if list_pl_split_candidate_inputs(db, workflow.id):
+    if list_pl_split_candidate_inputs(
+        db, workflow.id
+    ) or list_xbox_split_candidate_inputs(db, workflow.id):
         return False
     _mark_stage_skipped(
         following_stage,
         now=now,
         output_json={
-            "reason": "no_pl_candidates",
+            "reason": "no_pl_xbox_candidates",
             "classification_run_id": classification.id,
             "classification_job_id": classification.job_id,
             "classification_job_attempt": classification.job_attempt,
             "input_manifest_sha256": classification.input_manifest_sha256,
-            "xbox_status": "classification_only_reserved",
         },
     )
     drawing_stage = _next_stage(workflow, following_stage.sequence)

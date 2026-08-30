@@ -11,6 +11,7 @@ from app.modules.dxf_classification.interface import (
     ClassificationError,
     latest_classification_run,
     list_pl_split_candidate_inputs,
+    list_xbox_split_candidate_inputs,
     list_split_candidate_inputs,
     load_bh_stage2_classification_batch,
     load_box_stage2_classification_batch,
@@ -1091,19 +1092,20 @@ def _prepare_pl_dxf_splitting(
             "分类阶段尚未形成可追溯的 DXF 输出。",
         )
     inputs = list_pl_split_candidate_inputs(db, workflow.id)
-    if not inputs:
+    xbox_inputs = list_xbox_split_candidate_inputs(db, workflow.id)
+    if not inputs and not xbox_inputs:
         raise AppHTTPException(
             409,
-            "PL_DXF_SPLIT_INPUT_REQUIRED",
-            "分类运行没有可供 PL Stage 拆板的 DXF。",
+            "PL_XBOX_SPLIT_INPUT_REQUIRED",
+            "分类运行没有可供 PL/XBOX Stage 拆板的 DXF。",
         )
-    for item in inputs:
+    for item in [*inputs, *xbox_inputs]:
         stored = db.get(StoredFile, item.output_file_id)
         if stored is None or stored.status == "deleted" or stored.file_ext.casefold() != ".dxf":
             raise AppHTTPException(
                 409,
                 "PL_DXF_SPLIT_SOURCE_MISSING",
-                "分类后的 PL 拆板输入已不可用。",
+                "分类后的 PL/XBOX 拆板输入已不可用。",
                 {
                     "classification_item_id": item.classification_item_id,
                     "file_id": item.output_file_id,

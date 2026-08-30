@@ -189,7 +189,9 @@ def build_pl_split_run_read(
         )
     kept = or_(
         DxfClassificationItem.disposition != "classified",
-        func.coalesce(DxfClassificationItem.part_type != "PL", True),
+        func.coalesce(
+            DxfClassificationItem.part_type.notin_(("PL", "XBOX")), True
+        ),
         DxfClassificationItem.next_stage_eligible.is_(False),
     )
     label = func.coalesce(

@@ -34,6 +34,12 @@ from app.modules.dxf_splitting.pl_adapter import (
     PL_SPLITTER_VERSION,
     PlSplitError,
 )
+from app.modules.dxf_splitting.xbox_adapter import (
+    XBOX_REPORT_SCHEMA,
+    XBOX_SOURCE_CONTRACT_ID,
+    XBOX_SPLITTER_VERSION,
+    XboxSplitAdapterError,
+)
 from app.modules.dxf_splitting.schemas import (
     DxfSplitExcelHandoff,
     DxfSplitHandoffDrawing,
@@ -159,6 +165,60 @@ def get_or_create_pl_split_run(
         or run.source_contracts_json != {"PL": PL_SOURCE_CONTRACT_ID}
     ):
         raise PlSplitError("已存在的 PL 拆板 attempt 与当前冻结输入不一致。")
+    return run
+
+
+PL_XBOX_COMBINED_SPLITTER_VERSION = f"pl-{PL_SPLITTER_VERSION};xbox-{XBOX_SPLITTER_VERSION}"
+PL_XBOX_SOURCE_CONTRACTS = {"PL": PL_SOURCE_CONTRACT_ID, "XBOX": XBOX_SOURCE_CONTRACT_ID}
+PL_XBOX_VALIDATION_SCHEMA = "DWG-AGENT-PL-XBOX-SPLIT-VALIDATION-1.0"
+PL_XBOX_MANIFEST_SCHEMA = "DWG-AGENT-PL-XBOX-SPLIT-MANIFEST-1.0"
+PL_XBOX_LEDGER_SCHEMA = "DWG-AGENT-PL-XBOX-SPLIT-LEDGER-1.0"
+PL_XBOX_COMBINED_CLI_SCHEMA = f"pl:{PL_REPORT_SCHEMA};xbox:{XBOX_REPORT_SCHEMA}"
+
+
+def get_or_create_pl_xbox_split_run(
+    db: Session,
+    *,
+    job: Job,
+    workflow: WorkflowRun,
+    classification_run_id: int,
+    attempt: int,
+    manifest_sha256: str,
+    input_count: int,
+) -> DxfSplitRun:
+    """One merged run per (job, attempt) covering both PL and XBOX families."""
+    run = db.scalar(
+        select(DxfSplitRun).where(
+            DxfSplitRun.job_id == job.id,
+            DxfSplitRun.job_attempt == attempt,
+        )
+    )
+    if run is None:
+        run = DxfSplitRun(
+            workflow_run_id=workflow.id,
+            project_id=workflow.project_id,
+            classification_run_id=classification_run_id,
+            job_id=job.id,
+            job_attempt=attempt,
+            status="running",
+            splitter_version=PL_XBOX_COMBINED_SPLITTER_VERSION,
+            input_manifest_sha256=manifest_sha256,
+            input_count=input_count,
+            source_contracts_json=dict(PL_XBOX_SOURCE_CONTRACTS),
+            started_at=business_now(),
+        )
+        db.add(run)
+        db.commit()
+    elif (
+        run.workflow_run_id != workflow.id
+        or run.project_id != workflow.project_id
+        or run.classification_run_id != classification_run_id
+        or run.input_manifest_sha256 != manifest_sha256
+        or run.input_count != input_count
+        or run.splitter_version != PL_XBOX_COMBINED_SPLITTER_VERSION
+        or run.source_contracts_json != PL_XBOX_SOURCE_CONTRACTS
+    ):
+        raise PlSplitError("已存在的 PL/XBOX 拆板 attempt 与当前冻结输入不一致。")
     return run
 
 
@@ -358,6 +418,60 @@ def record_pl_split_item(
     return item
 
 
+def record_xbox_split_item(
+    db: Session,
+    *,
+    run: DxfSplitRun,
+    validated: ValidatedSplitItem,
+    normal_file: StoredFile | None = None,
+    weld_allowance_file: StoredFile | None = None,
+    item_report_file: StoredFile | None = None,
+    weld_allowance_report_file: StoredFile | None = None,
+) -> DxfSplitItem:
+    """Persist one XBOX pair; unlike PL both artifacts are registered."""
+    semantic = validated.source.semantic
+    classifier_confirmed = (
+        semantic.classification_disposition == "classified"
+        and semantic.part_type == "XBOX"
+        and validated.family == "XBOX"
+    )
+    item = DxfSplitItem(
+        run=run,
+        classification_item_id=semantic.classification_item_id,
+        drawing_id=semantic.drawing_id,
+        source_file_id=semantic.output_file_id,
+        source_name=validated.source.source_name,
+        classification_disposition=semantic.classification_disposition,
+        classification_part_type=semantic.part_type,
+        type_resolution="classifier_confirmed" if classifier_confirmed else "unresolved",
+        part_type="XBOX",
+        profile_normalized=semantic.profile_normalized,
+        family="XBOX",
+        source_contract_id=XBOX_SOURCE_CONTRACT_ID,
+        automation_route=validated.automation_route,
+        disposition=validated.disposition,
+        normal_dxf_file_id=normal_file.id if normal_file is not None else None,
+        weld_allowance_dxf_file_id=(
+            weld_allowance_file.id if weld_allowance_file is not None else None
+        ),
+        split_report_file_id=(item_report_file.id if item_report_file is not None else None),
+        weld_allowance_report_file_id=(
+            weld_allowance_report_file.id
+            if weld_allowance_report_file is not None
+            else None
+        ),
+        candidate_normal_dxf_file_id=None,
+        candidate_weld_allowance_dxf_file_id=None,
+        candidate_split_report_file_id=None,
+        candidate_weld_allowance_report_file_id=None,
+        diagnostics_json=list(validated.diagnostics),
+        validation_json=validated.validation,
+    )
+    db.add(item)
+    db.flush()
+    return item
+
+
 def record_split_analysis(
     db: Session,
     *,
@@ -413,6 +527,16 @@ def record_pl_split_analysis(
             "input_count": run.input_count,
             "auto_accepted_count": run.auto_accepted_count,
             "manual_review_count": run.manual_review_count,
+            "xbox_auto_accepted_count": sum(
+                1
+                for item in run.items
+                if item.family == "XBOX" and item.automation_route == "auto_accepted"
+            ),
+            "xbox_manual_review_count": sum(
+                1
+                for item in run.items
+                if item.family == "XBOX" and item.automation_route == "manual_review"
+            ),
             "validation_report_file_id": validation_file.id,
         },
         confidence=Decimal("1.0000"),
@@ -462,8 +586,8 @@ def finish_pl_split_run(
     validation_file: StoredFile,
 ) -> None:
     run.status = "completed_with_review" if manual_review_count else "completed"
-    run.cli_schema = PL_REPORT_SCHEMA
-    run.validation_schema = "DWG-AGENT-PL-SPLIT-VALIDATION-1.0"
+    run.cli_schema = PL_XBOX_COMBINED_CLI_SCHEMA
+    run.validation_schema = PL_XBOX_VALIDATION_SCHEMA
     run.auto_accepted_count = auto_accepted_count
     run.manual_review_count = manual_review_count
     run.failed_count = failed_count

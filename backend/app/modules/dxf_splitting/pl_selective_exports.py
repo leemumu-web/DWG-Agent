@@ -21,7 +21,7 @@ PL_SELECTIVE_EXPORT_CATEGORY_ORDER = ("failed_pl", "failed_xbox", "other")
 PL_SELECTIVE_EXPORT_CATEGORY_DEFINITIONS = {
     "failed_pl": {"label": "未通过的 PL", "folder": "未通过的PL"},
     "failed_xbox": {
-        "label": "未通过的 XBOX（预留）",
+        "label": "未通过的 XBOX",
         "folder": "未通过的XBOX",
     },
     "other": {"label": "其他", "folder": "其他"},
@@ -55,11 +55,12 @@ def pl_category_files(
     for item in run.items:
         if item.automation_route != "manual_review":
             continue
-        category = (
-            "failed_pl"
-            if item.classification_part_type == "PL" and item.family == "PL"
-            else "other"
-        )
+        if item.family == "XBOX" or item.classification_part_type == "XBOX":
+            category = "failed_xbox"
+        elif item.classification_part_type == "PL" and item.family == "PL":
+            category = "failed_pl"
+        else:
+            category = "other"
         stored = _required_file(db, item.source_file_id)
         result[category].append((item.classification_item_id, stored))
     return result

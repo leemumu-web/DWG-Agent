@@ -71,6 +71,8 @@ TASK_PL_DXF_SPLIT = "split_pl_dxf"
 STEP_RUN_PL_DXF_SPLIT = "run_pl_dxf_split"
 STEP_VALIDATE_PL_DXF_SPLIT = "validate_pl_dxf_split"
 STEP_PERSIST_PL_DXF_SPLIT = "persist_pl_dxf_split"
+STEP_RUN_XBOX_DXF_SPLIT = "run_xbox_dxf_split"
+STEP_VALIDATE_XBOX_DXF_SPLIT = "validate_xbox_dxf_split"
 
 # Excel→final part-list pipeline (excel_final)
 PIPELINE_EXCEL_FINAL = "excel_final"

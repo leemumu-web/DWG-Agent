@@ -28,8 +28,9 @@ Stage 内部的重复型材分流，改为消费上一步冻结分类，并用�
 文件职责：`adapter.py` 固定版本、CLI 和来源契约；`validation.py` 独立重开并核对成对产物；
 `execution.py` 编排整批 attempt；`persistence.py` 负责数据库与对象存储登记；
 `selective_exports.py` 按当前分类、拆板账本生成四类互斥原始 DXF 清单，并签发短期流式下载能力；
-`pl_adapter.py` 只调用独立 PL Stage；`pl_execution.py` 编排 PL attempt；
-`pl_validation.py` 对保存后的 PL DXF 做第二套校验；`pl_selective_exports.py` 只导出 PL 安全拒绝原图；
+`pl_adapter.py` 只调用独立 PL Stage；`pl_execution.py` 编排 PL/XBOX 合并 attempt；
+`pl_validation.py` 对保存后的 PL DXF 做第二套校验；`pl_selective_exports.py` 只导出 PL/XBOX 安全拒绝原图；
+`xbox_adapter.py` 只调用独立 XBOX Stage（成对产物）；`xbox_validation.py` 对保存后的 XBOX 原长+余量成对 DXF 做第二套校验；
 `review.py` 保留历史候选决定的后端审计兼容；
 `models.py`、`schemas.py` 定义持久化和传输结构；`presentation.py` 生成公开读模型；
 `tasks.py` 暴露 Celery 入口；`interface.py` 是其他业务模块唯一允许依赖的公开边界。

@@ -101,6 +101,27 @@ def run_dxf_splitting(job_id: int, **kwargs) -> None:
 
 def run_pl_dxf_splitting(job_id: int, **kwargs) -> None:
     """执行一个独立 PL 拆板 Job（worker 侧，按 status+attempt 守卫）。"""
+def run_xbox_splitting(job_id, **kwargs):
+    """Worker 侧执行入口（PL+XBOX 合并编排）。"""
+    from app.modules.dxf_splitting.pl_execution import run_pl_dxf_splitting as run
+
+    return run(job_id, **kwargs)
+
+
+def invoke_xbox_splitter(*args, **kwargs):
+    """子进程边界：调用独立 XBOX Stage CLI 并校验批量信封。"""
+    from app.modules.dxf_splitting.xbox_adapter import invoke_xbox_splitter as invoke_impl
+
+    return invoke_impl(*args, **kwargs)
+
+
+def validate_xbox_result(*args, **kwargs):
+    """XBOX 成对产物的保存后独立校验。"""
+    from app.modules.dxf_splitting.xbox_validation import validate_xbox_result as validate_impl
+
+    return validate_impl(*args, **kwargs)
+
+
     from app.modules.dxf_splitting.pl_execution import run_pl_dxf_splitting as run
 
     run(job_id, **kwargs)
@@ -287,5 +308,8 @@ __all__ = [
     "storage_members",
     "run_dxf_splitting",
     "run_pl_dxf_splitting",
+    "run_xbox_splitting",
+    "invoke_xbox_splitter",
+    "validate_xbox_result",
     "pl_dxf_split_run_for_job",
 ]

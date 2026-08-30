@@ -658,3 +658,46 @@ def list_pl_split_candidate_inputs(
             )
         )
     return inputs
+
+
+def list_xbox_split_candidate_inputs(
+    db: Session,
+    workflow_id: int,
+) -> list[DxfSplitCandidateInput]:
+    """Return only classifier-confirmed XBOX DXFs for the independent XBOX Stage.
+
+    Mirrors the PL reader exactly and stays mutually exclusive with both the
+    BH/BOX reader and the PL reader; never widen another reader's whitelist.
+    """
+    run = latest_classification_run(db, workflow_id)
+    if run is None:
+        return []
+    inputs: list[DxfSplitCandidateInput] = []
+    for item in run.items:
+        if (
+            not item.next_stage_eligible
+            or item.part_type != "XBOX"
+            or item.disposition != "classified"
+        ):
+            continue
+        output_file = db.get(StoredFile, item.output_file_id)
+        if (
+            output_file is None
+            or output_file.status == "deleted"
+            or output_file.file_ext.casefold() != ".dxf"
+        ):
+            raise ClassificationError("XBOX 拆板候选分类输出文件不可用。")
+        inputs.append(
+            DxfSplitCandidateInput(
+                classification_item_id=item.id,
+                drawing_id=item.drawing_id,
+                classification_disposition=item.disposition,
+                part_type=item.part_type,
+                profile_normalized=item.profile_normalized,
+                type_source=item.type_source,
+                source_file_id=item.source_file_id,
+                output_file_id=item.output_file_id,
+                classifier_version=run.classifier_version,
+            )
+        )
+    return inputs

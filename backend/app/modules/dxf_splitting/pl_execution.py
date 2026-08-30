@@ -1,4 +1,10 @@
-"""Attempt-aware orchestration for the standalone PL splitting Stage."""
+"""Attempt-aware orchestration for the merged PL + XBOX splitting Stage.
+
+One job attempt drives two independent Stage subprocesses (PL and XBOX);
+their validated results merge into a single ``DxfSplitRun`` whose items
+carry ``family="PL"`` or ``family="XBOX"``. PL keeps its single-artifact
+rule; XBOX registers the normal + weld-allowance pair.
+"""
 
 from __future__ import annotations
 
@@ -15,19 +21,26 @@ from app.modules.dxf_classification.interface import (
     DxfSplitCandidateInput,
     latest_classification_run,
     list_pl_split_candidate_inputs,
+    list_xbox_split_candidate_inputs,
 )
 from app.modules.dxf_splitting.persistence import (
+    PL_XBOX_COMBINED_CLI_SCHEMA,
+    PL_XBOX_COMBINED_SPLITTER_VERSION,
+    PL_XBOX_LEDGER_SCHEMA,
+    PL_XBOX_MANIFEST_SCHEMA,
+    PL_XBOX_SOURCE_CONTRACTS,
+    PL_XBOX_VALIDATION_SCHEMA,
     finish_pl_split_run,
-    get_or_create_pl_split_run,
+    get_or_create_pl_xbox_split_run,
     load_split_run,
     mark_pl_split_failed,
     mark_split_interrupted,
     persist_split_output,
     record_pl_split_analysis,
     record_pl_split_item,
+    record_xbox_split_item,
 )
 from app.modules.dxf_splitting.pl_adapter import (
-    PL_REPORT_SCHEMA,
     PL_SOURCE_CONTRACT_ID,
     PL_SPLITTER_VERSION,
     PlSplitError,
@@ -35,6 +48,12 @@ from app.modules.dxf_splitting.pl_adapter import (
 )
 from app.modules.dxf_splitting.pl_validation import validate_pl_result
 from app.modules.dxf_splitting.validation import StagedSplitSource
+from app.modules.dxf_splitting.xbox_adapter import (
+    XBOX_SOURCE_CONTRACT_ID,
+    XBOX_SPLITTER_VERSION,
+    invoke_xbox_splitter,
+)
+from app.modules.dxf_splitting.xbox_validation import validate_xbox_result
 from app.modules.files.interface import StoredFile
 from app.modules.jobs.interface import (
     Job,
@@ -55,7 +74,9 @@ from app.platform.config.constants import (
     PIPELINE_PL_DXF_SPLIT,
     STEP_PERSIST_PL_DXF_SPLIT,
     STEP_RUN_PL_DXF_SPLIT,
+    STEP_RUN_XBOX_DXF_SPLIT,
     STEP_VALIDATE_PL_DXF_SPLIT,
+    STEP_VALIDATE_XBOX_DXF_SPLIT,
     TASK_STEEL_DXF_CLASSIFICATION,
 )
 from app.platform.config.settings import settings
@@ -64,19 +85,15 @@ from app.platform.time import business_now
 
 logger = logging.getLogger(__name__)
 
-PL_VALIDATION_SCHEMA = "DWG-AGENT-PL-SPLIT-VALIDATION-1.0"
-PL_MANIFEST_SCHEMA = "DWG-AGENT-PL-SPLIT-MANIFEST-1.0"
-PL_LEDGER_SCHEMA = "DWG-AGENT-PL-SPLIT-LEDGER-1.0"
-
 
 def _temporary_directory(job_id: int, attempt: int):
     work_root = Path(settings.dxf_split_work_root)
     try:
         work_root.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        raise PlSplitError("服务器 PL 拆板工作空间不可用。") from exc
+        raise PlSplitError("服务器 PL/XBOX 拆板工作空间不可用。") from exc
     return tempfile.TemporaryDirectory(
-        prefix=f"pl-split-{job_id}-{attempt}-",
+        prefix=f"pl-xbox-split-{job_id}-{attempt}-",
         dir=work_root,
     )
 
@@ -131,18 +148,22 @@ def _stage_sources(
     db: Session,
     inputs: list[DxfSplitCandidateInput],
     input_directory: Path,
+    *,
+    family: str,
 ) -> list[StagedSplitSource]:
     staged: list[StagedSplitSource] = []
     seen_names: set[str] = set()
     for semantic in inputs:
-        if semantic.part_type != "PL":
-            raise PlSplitError("PL Stage 收到了非 PL 分类条目。")
+        if semantic.part_type != family:
+            raise PlSplitError(f"{family} Stage 收到了非 {family} 分类条目。")
         stored = db.get(StoredFile, semantic.output_file_id)
         if stored is None or stored.status == "deleted" or stored.file_ext.casefold() != ".dxf":
-            raise PlSplitError(f"PL 分类条目 {semantic.classification_item_id} 的 DXF 不可用。")
+            raise PlSplitError(
+                f"{family} 分类条目 {semantic.classification_item_id} 的 DXF 不可用。"
+            )
         source_name = Path(stored.original_name).name
         if source_name.casefold() in seen_names:
-            raise PlSplitError(f"PL 拆板输入文件名冲突：{source_name}")
+            raise PlSplitError(f"{family} 拆板输入文件名冲突：{source_name}")
         seen_names.add(source_name.casefold())
         staged_path = input_directory / source_name
         staged_path.write_bytes(read_verified_input_object(stored))
@@ -159,18 +180,20 @@ def _stage_sources(
 def _result_by_source(
     staged: list[StagedSplitSource],
     payload: dict[str, Any],
+    *,
+    family: str,
 ) -> list[tuple[StagedSplitSource, dict[str, Any]]]:
     expected = {source.staged_path.resolve(): source for source in staged}
     mapped: dict[Path, dict[str, Any]] = {}
     for value in payload.get("items", []):
         if not isinstance(value, dict) or not isinstance(value.get("source"), str):
-            raise PlSplitError("PL 拆板报告含无效逐图记录。")
+            raise PlSplitError(f"{family} 拆板报告含无效逐图记录。")
         source_path = Path(value["source"]).resolve()
         if source_path not in expected or source_path in mapped:
-            raise PlSplitError("PL 拆板报告与冻结输入不是一一对应。")
+            raise PlSplitError(f"{family} 拆板报告与冻结输入不是一一对应。")
         mapped[source_path] = value
     if set(mapped) != set(expected):
-        raise PlSplitError("PL 拆板报告遗漏冻结输入。")
+        raise PlSplitError(f"{family} 拆板报告遗漏冻结输入。")
     return [(source, mapped[source.staged_path.resolve()]) for source in staged]
 
 
@@ -179,6 +202,7 @@ def _artifact_metadata(
     job: Job,
     run_id: int,
     role: str,
+    family: str,
     split_item_id: int | None = None,
     classification_item_id: int | None = None,
 ) -> dict[str, object]:
@@ -186,7 +210,7 @@ def _artifact_metadata(
         "job_id": job.id,
         "job_attempt": job.attempt,
         "split_run_id": run_id,
-        "family": "PL",
+        "family": family,
         "role": role,
     }
     if split_item_id is not None:
@@ -210,7 +234,7 @@ def run_pl_dxf_splitting(
             expected_attempt=expected_attempt,
             pipeline=PIPELINE_PL_DXF_SPLIT,
             progress=5,
-            message="PL 拆板任务已接收",
+            message="PL/XBOX 拆板任务已接收",
         )
         if job is None:
             return
@@ -233,7 +257,7 @@ def run_pl_dxf_splitting(
             or stage.job_id != job.id
             or stage.job_attempt != attempt
         ):
-            raise PlSplitError("Job 未绑定当前 PL 拆板阶段。")
+            raise PlSplitError("Job 未绑定当前 PL/XBOX 拆板阶段。")
         classification = latest_classification_run(db, workflow.id)
         if classification is None:
             raise PlSplitError("工作流缺少 DXF 分类运行。")
@@ -248,31 +272,46 @@ def run_pl_dxf_splitting(
             or classification_job.attempt != classification.job_attempt
             or classification.status not in {"completed", "completed_with_review"}
         ):
-            raise PlSplitError("PL 拆板 Job 的分类账本不一致。")
+            raise PlSplitError("PL/XBOX 拆板 Job 的分类账本不一致。")
         manifest_sha256 = str((job.params_json or {}).get("input_manifest_sha256") or "")
         if not manifest_sha256 or manifest_sha256 != classification.input_manifest_sha256:
-            raise PlSplitError("PL 拆板 Job 的冻结输入摘要不一致。")
-        inputs = list_pl_split_candidate_inputs(db, workflow.id)
-        if not inputs:
-            raise PlSplitError("最新分类运行没有 PL 拆板候选。")
-        run = get_or_create_pl_split_run(
+            raise PlSplitError("PL/XBOX 拆板 Job 的冻结输入摘要不一致。")
+        pl_inputs = list_pl_split_candidate_inputs(db, workflow.id)
+        xbox_inputs = list_xbox_split_candidate_inputs(db, workflow.id)
+        if not pl_inputs and not xbox_inputs:
+            raise PlSplitError("最新分类运行没有 PL/XBOX 拆板候选。")
+        total_inputs = len(pl_inputs) + len(xbox_inputs)
+        run = get_or_create_pl_xbox_split_run(
             db,
             job=job,
             workflow=workflow,
             classification_run_id=classification.id,
             attempt=attempt,
             manifest_sha256=manifest_sha256,
-            input_count=len(inputs),
+            input_count=total_inputs,
         )
 
         with _temporary_directory(job.id, attempt) as raw_root:
             root = Path(raw_root)
-            input_directory = root / "classified-pl-input"
-            output_directory = root / "pl-split-output"
+            pl_input_directory = root / "classified-pl-input"
+            pl_output_directory = root / "pl-split-output"
+            xbox_input_directory = root / "classified-xbox-input"
+            xbox_output_directory = root / "xbox-split-output"
             platform_directory = root / "platform"
-            input_directory.mkdir()
-            output_directory.mkdir()
-            staged = _stage_sources(db, inputs, input_directory)
+            for directory in (
+                pl_input_directory,
+                pl_output_directory,
+                xbox_input_directory,
+                xbox_output_directory,
+                platform_directory,
+            ):
+                directory.mkdir()
+            pl_staged = _stage_sources(
+                db, pl_inputs, pl_input_directory, family="PL"
+            )
+            xbox_staged = _stage_sources(
+                db, xbox_inputs, xbox_input_directory, family="XBOX"
+            )
             job = commit_job_progress(
                 db,
                 job.id,
@@ -282,49 +321,111 @@ def run_pl_dxf_splitting(
                     type_="progress",
                     status=JOB_RUNNING,
                     progress=25,
-                    message="PL 输入已校验并暂存",
+                    message="PL/XBOX 输入已校验并暂存",
                 ),
             )
             if job is None:
                 mark_split_interrupted(db, job_id, attempt)
                 return
-            stage_result = invoke_pl_splitter(
-                input_directory,
-                output_directory,
-                timeout_seconds=settings.dxf_split_timeout_seconds,
+
+            family_runs: list[
+                tuple[
+                    str,
+                    list[StagedSplitSource],
+                    Path,
+                    list[tuple[StagedSplitSource, dict[str, Any]]],
+                ]
+            ] = []
+            if pl_staged:
+                pl_result = invoke_pl_splitter(
+                    pl_input_directory,
+                    pl_output_directory,
+                    timeout_seconds=settings.dxf_split_timeout_seconds,
+                )
+                _add_step(
+                    db,
+                    job.id,
+                    attempt,
+                    STEP_RUN_PL_DXF_SPLIT,
+                    worker_name,
+                    input_json={
+                        "splitter_version": PL_SPLITTER_VERSION,
+                        "input_count": len(pl_staged),
+                        "source_contract": PL_SOURCE_CONTRACT_ID,
+                    },
+                    output_json={
+                        "exit_code": pl_result.exit_code,
+                        "success_count": pl_result.payload["success_count"],
+                        "rejected_count": pl_result.payload["rejected_count"],
+                    },
+                )
+                family_runs.append(
+                    (
+                        "PL",
+                        pl_staged,
+                        pl_output_directory,
+                        _result_by_source(
+                            pl_staged, pl_result.payload, family="PL"
+                        ),
+                    )
+                )
+            if xbox_staged:
+                xbox_result = invoke_xbox_splitter(
+                    xbox_input_directory,
+                    xbox_output_directory,
+                    timeout_seconds=settings.dxf_split_timeout_seconds,
+                )
+                _add_step(
+                    db,
+                    job.id,
+                    attempt,
+                    STEP_RUN_XBOX_DXF_SPLIT,
+                    worker_name,
+                    input_json={
+                        "splitter_version": XBOX_SPLITTER_VERSION,
+                        "input_count": len(xbox_staged),
+                        "source_contract": XBOX_SOURCE_CONTRACT_ID,
+                    },
+                    output_json={
+                        "exit_code": xbox_result.exit_code,
+                        "success_count": xbox_result.payload["success_count"],
+                        "rejected_count": xbox_result.payload["rejected_count"],
+                    },
+                )
+                family_runs.append(
+                    (
+                        "XBOX",
+                        xbox_staged,
+                        xbox_output_directory,
+                        _result_by_source(
+                            xbox_staged, xbox_result.payload, family="XBOX"
+                        ),
+                    )
+                )
+
+            validated_pairs: list[
+                tuple[StagedSplitSource, dict[str, Any], Any]
+            ] = []
+            for family, staged, output_directory, matched in family_runs:
+                validator = validate_pl_result if family == "PL" else validate_xbox_result
+                for source, report_item in matched:
+                    validated_pairs.append(
+                        (source, report_item, validator(source, report_item, output_directory))
+                    )
+            auto_count = sum(
+                item.automation_route == "auto_accepted" for _, _, item in validated_pairs
             )
-            _add_step(
-                db,
-                job.id,
-                attempt,
-                STEP_RUN_PL_DXF_SPLIT,
-                worker_name,
-                input_json={
-                    "splitter_version": PL_SPLITTER_VERSION,
-                    "input_count": len(staged),
-                    "source_contract": PL_SOURCE_CONTRACT_ID,
-                },
-                output_json={
-                    "exit_code": stage_result.exit_code,
-                    "success_count": stage_result.payload["success_count"],
-                    "rejected_count": stage_result.payload["rejected_count"],
-                },
-            )
-            matched = _result_by_source(staged, stage_result.payload)
-            validated = [
-                validate_pl_result(source, report_item, output_directory)
-                for source, report_item in matched
-            ]
-            auto_count = sum(item.automation_route == "auto_accepted" for item in validated)
-            manual_count = len(validated) - auto_count
+            manual_count = len(validated_pairs) - auto_count
             failed_count = manual_count
             _add_step(
                 db,
                 job.id,
                 attempt,
-                STEP_VALIDATE_PL_DXF_SPLIT,
+                STEP_VALIDATE_PL_DXF_SPLIT
+                if not xbox_staged
+                else STEP_VALIDATE_XBOX_DXF_SPLIT,
                 worker_name,
-                input_json={"schema": PL_VALIDATION_SCHEMA},
+                input_json={"schema": PL_XBOX_VALIDATION_SCHEMA},
                 output_json={
                     "auto_accepted_count": auto_count,
                     "manual_review_count": manual_count,
@@ -339,7 +440,7 @@ def run_pl_dxf_splitting(
                     type_="progress",
                     status=JOB_RUNNING,
                     progress=70,
-                    message="PL 保存后独立校验完成",
+                    message="PL/XBOX 保存后独立校验完成",
                 ),
             )
             if job is None:
@@ -347,11 +448,11 @@ def run_pl_dxf_splitting(
                 return
 
             run = load_split_run(db, job_id=job.id, attempt=attempt)
-            batch_name = f"workflow-{workflow.id}-pl-split-attempt-{attempt}"
+            batch_name = f"workflow-{workflow.id}-pl-xbox-split-attempt-{attempt}"
             persisted_items = []
             validation_items: list[dict[str, object]] = []
-            for index, ((source, report_item), validation) in enumerate(
-                zip(matched, validated, strict=True),
+            for index, (source, report_item, validation) in enumerate(
+                validated_pairs,
                 start=1,
             ):
                 portable_item = dict(report_item)
@@ -361,6 +462,13 @@ def run_pl_dxf_splitting(
                     portable_item["output"] = {
                         **output,
                         "path": Path(str(output.get("path"))).name,
+                    }
+                outputs = portable_item.get("outputs")
+                if isinstance(outputs, dict):
+                    portable_item["outputs"] = {
+                        key: Path(str(value)).name
+                        for key, value in outputs.items()
+                        if isinstance(value, str)
                     }
                 item_report_path = _write_json(
                     platform_directory / "items" / f"{index:04d}.json",
@@ -378,40 +486,79 @@ def run_pl_dxf_splitting(
                     storage_stage="pl-xbox-split",
                 )
                 normal_file = None
-                if (
-                    validation.automation_route == "auto_accepted"
-                    and validation.normal_dxf_path is not None
-                ):
-                    normal_file = persist_split_output(
+                weld_allowance_file = None
+                weld_allowance_report_file = None
+                if validation.automation_route == "auto_accepted":
+                    if validation.normal_dxf_path is not None:
+                        normal_file = persist_split_output(
+                            db,
+                            job=job,
+                            workflow_id=workflow.id,
+                            attempt=attempt,
+                            relative_path=f"normal/{validation.normal_dxf_path.name}",
+                            path=validation.normal_dxf_path,
+                            batch_name=batch_name,
+                            content_type="application/dxf",
+                            storage_stage="pl-xbox-split",
+                        )
+                    if validation.weld_allowance_dxf_path is not None:
+                        weld_allowance_file = persist_split_output(
+                            db,
+                            job=job,
+                            workflow_id=workflow.id,
+                            attempt=attempt,
+                            relative_path=f"normal/{validation.weld_allowance_dxf_path.name}",
+                            path=validation.weld_allowance_dxf_path,
+                            batch_name=batch_name,
+                            content_type="application/dxf",
+                            storage_stage="pl-xbox-split",
+                        )
+                    if validation.weld_allowance_report_path is not None:
+                        weld_allowance_report_file = persist_split_output(
+                            db,
+                            job=job,
+                            workflow_id=workflow.id,
+                            attempt=attempt,
+                            relative_path=(
+                                f"reports/{validation.weld_allowance_report_path.name}"
+                            ),
+                            path=validation.weld_allowance_report_path,
+                            batch_name=batch_name,
+                            content_type="application/json",
+                            storage_stage="pl-xbox-split",
+                        )
+                if validation.family == "XBOX":
+                    item = record_xbox_split_item(
                         db,
-                        job=job,
-                        workflow_id=workflow.id,
-                        attempt=attempt,
-                        relative_path=f"normal/{validation.normal_dxf_path.name}",
-                        path=validation.normal_dxf_path,
-                        batch_name=batch_name,
-                        content_type="application/dxf",
-                        storage_stage="pl-xbox-split",
+                        run=run,
+                        validated=validation,
+                        normal_file=normal_file,
+                        weld_allowance_file=weld_allowance_file,
+                        item_report_file=item_report_file,
+                        weld_allowance_report_file=weld_allowance_report_file,
                     )
-                item = record_pl_split_item(
-                    db,
-                    run=run,
-                    validated=validation,
-                    normal_file=normal_file,
-                    item_report_file=item_report_file,
-                )
+                else:
+                    item = record_pl_split_item(
+                        db,
+                        run=run,
+                        validated=validation,
+                        normal_file=normal_file,
+                        item_report_file=item_report_file,
+                    )
                 persisted_items.append(item)
                 validation_items.append(
                     {
                         "split_item_id": item.id,
                         "classification_item_id": item.classification_item_id,
                         "source_name": item.source_name,
+                        "family": item.family,
                         "automation_route": item.automation_route,
                         "disposition": item.disposition,
                         "diagnostics": item.diagnostics_json or [],
                         "validation": item.validation_json or {},
                     }
                 )
+                artifact_family = item.family or validation.family or "PL"
                 if normal_file is not None:
                     attach_artifact(
                         db,
@@ -425,6 +572,23 @@ def run_pl_dxf_splitting(
                             split_item_id=item.id,
                             classification_item_id=item.classification_item_id,
                             role="normal_dxf",
+                            family=artifact_family,
+                        ),
+                    )
+                if weld_allowance_file is not None:
+                    attach_artifact(
+                        db,
+                        workflow,
+                        stage_code="pl_xbox_split",
+                        artifact_type="weld_allowance_dxf",
+                        file_id=weld_allowance_file.id,
+                        metadata=_artifact_metadata(
+                            job=job,
+                            run_id=run.id,
+                            split_item_id=item.id,
+                            classification_item_id=item.classification_item_id,
+                            role="weld_allowance_dxf",
+                            family=artifact_family,
                         ),
                     )
                 attach_artifact(
@@ -439,30 +603,31 @@ def run_pl_dxf_splitting(
                         split_item_id=item.id,
                         classification_item_id=item.classification_item_id,
                         role="item_report",
+                        family=artifact_family,
                     ),
                 )
 
             validation_payload: dict[str, object] = {
-                "schema": PL_VALIDATION_SCHEMA,
+                "schema": PL_XBOX_VALIDATION_SCHEMA,
                 "workflow_id": workflow.id,
                 "split_run_id": run.id,
                 "job_attempt": attempt,
                 "input_manifest_sha256": manifest_sha256,
-                "input_count": len(validated),
+                "input_count": len(validated_pairs),
                 "auto_accepted_count": auto_count,
                 "manual_review_count": manual_count,
                 "failed_count": failed_count,
                 "items": validation_items,
             }
             validation_path = _write_json(
-                platform_directory / "pl-split-validation.json",
+                platform_directory / "pl-xbox-split-validation.json",
                 validation_payload,
             )
             ledger_payload: dict[str, object] = {
-                "schema": PL_LEDGER_SCHEMA,
+                "schema": PL_XBOX_LEDGER_SCHEMA,
                 "workflow_id": workflow.id,
                 "split_run_id": run.id,
-                "source_contract": PL_SOURCE_CONTRACT_ID,
+                "source_contracts": dict(PL_XBOX_SOURCE_CONTRACTS),
                 "items": [
                     {
                         "split_item_id": item.id,
@@ -471,12 +636,13 @@ def run_pl_dxf_splitting(
                         "family": item.family,
                         "status": item.automation_route,
                         "normal_dxf_file_id": item.normal_dxf_file_id,
+                        "weld_allowance_dxf_file_id": item.weld_allowance_dxf_file_id,
                     }
                     for item in persisted_items
                 ],
             }
             ledger_path = _write_json(
-                platform_directory / "PL拆板信息表.json",
+                platform_directory / "PL_XBOX拆板信息表.json",
                 ledger_payload,
             )
             for role, path in (
@@ -484,7 +650,7 @@ def run_pl_dxf_splitting(
                 ("ledger", ledger_path),
             ):
                 if not path.is_file():
-                    raise PlSplitError(f"PL 拆板{role}文件未生成。")
+                    raise PlSplitError(f"PL/XBOX 拆板{role}文件未生成。")
             validation_file = persist_split_output(
                 db,
                 job=job,
@@ -509,17 +675,21 @@ def run_pl_dxf_splitting(
             )
             run_status = "completed_with_review" if manual_count else "completed"
             manifest_payload: dict[str, object] = {
-                "schema": PL_MANIFEST_SCHEMA,
+                "schema": PL_XBOX_MANIFEST_SCHEMA,
                 "workflow_id": workflow.id,
                 "split_run_id": run.id,
                 "job_id": job.id,
                 "job_attempt": attempt,
                 "status": run_status,
-                "splitter_version": PL_SPLITTER_VERSION,
-                "cli_schema": PL_REPORT_SCHEMA,
-                "validation_schema": PL_VALIDATION_SCHEMA,
+                "splitter_versions": {
+                    "PL": PL_SPLITTER_VERSION,
+                    "XBOX": XBOX_SPLITTER_VERSION,
+                },
+                "splitter_version": PL_XBOX_COMBINED_SPLITTER_VERSION,
+                "cli_schema": PL_XBOX_COMBINED_CLI_SCHEMA,
+                "validation_schema": PL_XBOX_VALIDATION_SCHEMA,
                 "input_manifest_sha256": manifest_sha256,
-                "source_contracts": {"PL": PL_SOURCE_CONTRACT_ID},
+                "source_contracts": dict(PL_XBOX_SOURCE_CONTRACTS),
                 "input_count": len(persisted_items),
                 "auto_accepted_count": auto_count,
                 "manual_review_count": manual_count,
@@ -533,16 +703,17 @@ def run_pl_dxf_splitting(
                         "drawing_id": item.drawing_id,
                         "source_file_id": item.source_file_id,
                         "part_type": item.part_type,
+                        "family": item.family,
                         "automation_route": item.automation_route,
                         "normal_dxf_file_id": item.normal_dxf_file_id,
-                        "weld_allowance_dxf_file_id": None,
+                        "weld_allowance_dxf_file_id": item.weld_allowance_dxf_file_id,
                         "split_report_file_id": item.split_report_file_id,
                     }
                     for item in persisted_items
                 ],
             }
             manifest_path = _write_json(
-                platform_directory / "pl-split-manifest.json",
+                platform_directory / "pl-xbox-split-manifest.json",
                 manifest_payload,
             )
             manifest_file = persist_split_output(
@@ -589,6 +760,7 @@ def run_pl_dxf_splitting(
                         job=job,
                         run_id=run.id,
                         role=role,
+                        family="PL",
                     ),
                 )
             _add_step(
@@ -614,9 +786,9 @@ def run_pl_dxf_splitting(
                     status=JOB_SUCCEEDED,
                     progress=100,
                     message=(
-                        "PL 拆板完成，部分图纸被安全拒绝"
+                        "PL/XBOX 拆板完成，部分图纸被安全拒绝"
                         if manual_count
-                        else "PL 拆板及独立校验全部完成"
+                        else "PL/XBOX 拆板及独立校验全部完成"
                     ),
                     run_id=run.id,
                     split_status=run.status,

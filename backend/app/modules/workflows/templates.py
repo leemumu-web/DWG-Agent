@@ -88,12 +88,13 @@ WORKFLOW_TEMPLATES: dict[str, WorkflowTemplateRead] = {
             _stage(
                 "pl_xbox_split",
                 "PL / XBOX 拆板与独立校验",
-                "当前仅处理分类确认的 PL 板材；XBOX 只保留分类结果，待后续独立模块接入。",
+                "处理分类确认的 PL 板材（原长单产物）与 XBOX 箱型构件（原长+焊接余量成对产物）。",
                 execution_mode="automated",
                 execution_kind="pl_xbox_split",
                 required_inputs=("classified_dxf",),
                 artifact_types=(
                     "processed_dxf",
+                    "weld_allowance_dxf",
                     "split_report",
                     "validation_report",
                     "split_ledger",
