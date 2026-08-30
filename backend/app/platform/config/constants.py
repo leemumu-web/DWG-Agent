@@ -65,6 +65,13 @@ STEP_RUN_STEEL_DXF_SPLIT = "run_steel_dxf_split"
 STEP_VALIDATE_STEEL_DXF_SPLIT = "validate_steel_dxf_split"
 STEP_PERSIST_STEEL_DXF_SPLIT = "persist_steel_dxf_split"
 
+# Standalone PL split pipeline
+PIPELINE_PL_DXF_SPLIT = "pl_dxf_split"
+TASK_PL_DXF_SPLIT = "split_pl_dxf"
+STEP_RUN_PL_DXF_SPLIT = "run_pl_dxf_split"
+STEP_VALIDATE_PL_DXF_SPLIT = "validate_pl_dxf_split"
+STEP_PERSIST_PL_DXF_SPLIT = "persist_pl_dxf_split"
+
 # Excel→final part-list pipeline (excel_final)
 PIPELINE_EXCEL_FINAL = "excel_final"
 TASK_EXCEL_FINAL = "process_excel_final"

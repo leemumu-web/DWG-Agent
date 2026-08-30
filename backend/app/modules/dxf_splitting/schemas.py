@@ -66,6 +66,42 @@ class DxfSplitRunRead(BaseModel):
     updated_at: datetime
 
 
+class PlSplitRunRead(BaseModel):
+    id: int
+    workflow_run_id: int
+    status: str
+    splitter_version: str
+    cli_schema: str | None
+    validation_schema: str | None
+    input_manifest_sha256: str
+    input_count: int
+    processed_count: int
+    failed_count: int
+    reviewed_count: int
+    elapsed_seconds: int
+    throughput_per_minute: float | None
+    estimated_remaining_seconds: int | None
+    auto_accepted_count: int
+    manual_review_count: int
+    classifier_confirmed_count: int
+    splitter_detected_count: int
+    unresolved_count: int
+    classification_input_count: int
+    classification_only_count: int
+    classification_only_type_counts: dict[str, int]
+    source_contracts: dict[str, str]
+    split_ledger_file: FileRead | None
+    split_manifest_file: FileRead | None
+    job: JobRead
+    items: list[DxfSplitItemRead]
+    error_code: str | None
+    error_message: str | None
+    started_at: datetime | None
+    finished_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
 class DxfSplitReviewDecisionWrite(BaseModel):
     decision: Literal["accept_candidate", "manual_processing"]
     comment: str = Field(min_length=2, max_length=1000)

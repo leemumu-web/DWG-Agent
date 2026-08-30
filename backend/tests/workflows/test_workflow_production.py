@@ -89,6 +89,7 @@ def test_linux_production_template_has_complete_ordered_server_framework(db):
     assert [stage.stage_code for stage in workflow.stages] == [
         "source_intake",
         "dxf_classification",
+        "pl_xbox_split",
         "drawing_processing",
         "excel_stage1",
         "excel_stage2",
@@ -99,7 +100,7 @@ def test_linux_production_template_has_complete_ordered_server_framework(db):
         "result_acceptance",
         "delivery_archive",
     ]
-    assert workflow.config_json == {"definition_revision": 4}
+    assert workflow.config_json == {"definition_revision": 5}
 
 
 def test_linux_production_template_exposes_honest_capabilities():
@@ -368,6 +369,7 @@ def _complete_classification_fixture(
     )
     db.flush()
     stage = next(item for item in workflow.stages if item.stage_code == "dxf_classification")
+    pl_stage = next(item for item in workflow.stages if item.stage_code == "pl_xbox_split")
     drawing = next(item for item in workflow.stages if item.stage_code == "drawing_processing")
     for artifact in stage.artifacts:
         artifact.metadata_json = {"job_id": job.id, "job_attempt": job.attempt}
@@ -375,6 +377,9 @@ def _complete_classification_fixture(
     stage.job_attempt = job.attempt
     stage.status = "succeeded"
     stage.progress = 100
+    pl_stage.status = "skipped"
+    pl_stage.progress = 100
+    pl_stage.output_json = {"reason": "no_pl_candidates"}
     drawing.status = "waiting_input"
     workflow_service.recompute_workflow(workflow)
     return run
@@ -1276,6 +1281,7 @@ def _workflow_at_excel_stage_with_frozen_excel(
         if stage.stage_code in {
             "source_intake",
             "dxf_classification",
+            "pl_xbox_split",
             "drawing_processing",
         }:
             stage.status = "succeeded"
@@ -2401,7 +2407,7 @@ def test_failed_automated_stage_can_retry_through_workflow_execution(monkeypatch
     assert data["job"]["attempt"] == 2
     assert data["job"]["status"] == "queued"
     assert data["workflow"]["status"] == "running"
-    assert data["workflow"]["stages"][3]["job_attempt"] == 2
+    assert data["workflow"]["stages"][4]["job_attempt"] == 2
     assert data["retried"] is True
     with open_test_session() as db:
         dispatches = list(
@@ -3195,7 +3201,12 @@ def test_linux_production_can_reach_delivery_with_real_jobs_and_handoffs(db):
     assert workflow.status == "succeeded"
     assert workflow.progress == 100
     assert workflow.current_stage == "delivery_archive"
-    assert [stage.status for stage in workflow.stages] == ["succeeded"] * 11
+    assert [stage.status for stage in workflow.stages] == [
+        "succeeded",
+        "succeeded",
+        "skipped",
+        *("succeeded" for _ in range(9)),
+    ]
     assert {artifact.artifact_type for artifact in workflow.artifacts} == {
         "source_dwg",
         "source_excel",

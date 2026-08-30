@@ -134,7 +134,7 @@ export function PlXboxDrawingSelectiveExportControl({
 
   return (
     <>
-      <Tooltip title={buttonDisabled ? disabledReason ?? '当前 PL / XBOX 拆板批次尚未形成可导出的分类结果' : undefined}>
+      <Tooltip title={buttonDisabled ? disabledReason ?? '当前 PL 拆板批次尚未形成可导出的分类结果' : undefined}>
         <span>
           <Button
             icon={<DownloadOutlined />}
@@ -206,7 +206,7 @@ export function PlXboxDrawingSelectiveExportControl({
               type="warning"
               showIcon
               message="当前没有可导出的文件"
-              description="当前 PL / XBOX 拆板批次没有符合未通过 PL、未通过 XBOX 或其他类别的可用源 DXF。请刷新批次状态；若文件已被清理，请联系管理员。"
+              description="当前 PL 拆板批次没有未通过的可用源 DXF。XBOX 类别仅为后续实现预留；若 PL 文件已被清理，请联系管理员。"
             />
           )}
           {previewQ.data && !previewQ.isFetching && (

@@ -230,18 +230,32 @@
       "status": "partial",
       "architecture_nodes": ["API", "MINIO", "MYSQL", "WEB"],
       "backend_paths": ["backend/app/modules/dxf_splitting"],
-      "frontend_paths": ["frontend/src/features/workflows/DrawingProcessingPanel.tsx"],
+      "frontend_paths": [
+        "frontend/src/features/workflows/DrawingProcessingPanel.tsx",
+        "frontend/src/features/workflows/PlXboxDrawingProcessingPanel.tsx"
+      ],
       "tables": ["dxf_split_items", "dxf_split_review_decisions", "dxf_split_runs"],
       "http_prefixes": [],
-      "celery_tasks": ["app.workers.tasks_dxf_split.split_steel_dxf"],
+      "celery_tasks": [
+        "app.workers.tasks_dxf_split.split_steel_dxf",
+        "app.workers.tasks_pl_dxf_split.split_pl_dxf"
+      ],
       "queues": ["dxf_split"],
-      "stages": ["Stages/steel_dxf_split_v1.5.2"],
-      "tests": ["backend/tests/dxf_splitting/test_dxf_splitting_pipeline.py"],
+      "stages": [
+        "Stages/steel_dxf_split_pl",
+        "Stages/steel_dxf_split_v1.5.2"
+      ],
+      "tests": [
+        "backend/tests/dxf_splitting/test_dxf_splitting_pipeline.py",
+        "backend/tests/dxf_splitting/test_pl_workflow.py"
+      ],
       "docs": [
+        "Stages/steel_dxf_split_pl/README.md",
         "backend/app/modules/dxf_splitting/README.md",
+        "docs/architecture/pl-xbox-split-frontend-contract.md",
         "docs/architecture/workflow.md"
       ],
-      "notes": "Steel DXF Split 1.5.2 按冻结分类清单整批处理 BH/BOX，登记正常拆板、余量增长、报告和 BH 拆板信息表；其他类型或独立校验未通过图纸保持人工复核。HTTP 路由由 workflows 模块拥有，真实 MinIO/MySQL 部署和人工前端样本验收仍受默认关闭的功能开关保护。"
+      "notes": "原 Steel DXF Split 1.5.2 继续按冻结分类清单整批处理 BH/BOX；独立 steel_dxf_split_pl 0.2.0 只处理 PL、只登记原长结果，并由后端重新打开 DXF 做独立校验。XBOX 当前仅保留分类与接口位。HTTP 路由由 workflows 模块拥有。"
     },
     {
       "code": "excel_processing",

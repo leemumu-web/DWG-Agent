@@ -388,6 +388,9 @@ def _split_job_fixture(
     classification_stage = next(
         item for item in workflow.stages if item.stage_code == "dxf_classification"
     )
+    pl_stage = next(
+        item for item in workflow.stages if item.stage_code == "pl_xbox_split"
+    )
     drawing_stage = next(
         item for item in workflow.stages if item.stage_code == "drawing_processing"
     )
@@ -397,6 +400,9 @@ def _split_job_fixture(
     classification_stage.progress = 100
     classification_stage.job_id = classification_job.id
     classification_stage.job_attempt = 1
+    pl_stage.status = "skipped"
+    pl_stage.progress = 100
+    pl_stage.output_json = {"reason": "no_pl_candidates"}
     drawing_stage.status = "waiting_input"
     workflow.current_stage = "drawing_processing"
     workflow.status = "waiting_input"

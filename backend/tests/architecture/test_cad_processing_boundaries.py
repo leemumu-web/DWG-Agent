@@ -23,6 +23,11 @@ STAGE_PRODUCTS = {
         "1.5.2",
         "steel-dxf-split",
     ),
+    "Stages/steel_dxf_split_pl": (
+        "steel-dxf-split-pl",
+        "0.2.0",
+        "steel-dxf-split-pl",
+    ),
 }
 
 CAD_PUBLIC_CONTRACT = {
@@ -67,6 +72,7 @@ CLASSIFICATION_PUBLIC_CONTRACT = {
     "latest_classification_run",
     "load_bh_stage2_classification_batch",
     "list_next_stage_inputs",
+    "list_pl_split_candidate_inputs",
     "list_split_candidate_inputs",
     "run_dxf_classification",
 }
@@ -77,6 +83,7 @@ SPLIT_PUBLIC_CONTRACT = {
     "CLI_SCHEMA",
     "MANIFEST_SCHEMA",
     "MAX_AUTOMATIC_ATTEMPTS",
+    "PL_SELECTIVE_EXPORT_COOKIE_NAME",
     "SELECTIVE_EXPORT_COOKIE_NAME",
     "SPLITTER_VERSION",
     "VALIDATION_SCHEMA",
@@ -91,12 +98,16 @@ SPLIT_PUBLIC_CONTRACT = {
     "DxfSplitReviewPage",
     "DxfSplitRun",
     "DxfSplitRunRead",
+    "PlSplitRunRead",
     "build_dxf_split_run_read",
+    "build_pl_split_run_read",
     "complete_split_review",
     "create_download_token",
+    "create_pl_download_token",
     "decide_split_item",
     "dxf_split_file_reference_exists",
     "enqueue_dxf_splitting_job",
+    "enqueue_pl_dxf_splitting_job",
     "export_download_path",
     "export_filename",
     "export_preview",
@@ -106,14 +117,21 @@ SPLIT_PUBLIC_CONTRACT = {
     "latest_dxf_split_run",
     "list_split_review_items",
     "manual_review_archive_members",
+    "pl_dxf_split_run_for_job",
+    "pl_export_download_path",
+    "pl_export_filename",
+    "pl_export_preview",
+    "pl_storage_members",
     "reconcile_dxf_split_run_for_terminal_job",
     "reconcile_orphan_dxf_split_runs",
     "require_download_token",
+    "require_pl_download_token",
     "review_candidate_archive_members",
     "split_candidate_available",
     "split_results_archive_members",
     "storage_members",
     "run_dxf_splitting",
+    "run_pl_dxf_splitting",
 }
 
 EXPECTED_TASKS = {
@@ -124,6 +142,7 @@ EXPECTED_TASKS = {
     "app.workers.tasks_dxf2excel.extract_dxf_to_excel": "dxf2excel",
     "app.workers.tasks_dxf_classification.classify_steel_dxf": "dxf_classification",
     "app.workers.tasks_dxf_split.split_steel_dxf": "dxf_split",
+    "app.workers.tasks_pl_dxf_split.split_pl_dxf": "dxf_split",
 }
 
 EXPECTED_INTERNAL_LAYERS = {
@@ -259,6 +278,7 @@ def test_conversion_classification_and_split_tasks_keep_public_names_and_queues(
         cad_tasks.extract_dxf_to_excel_task,
         classification_tasks.classify_steel_dxf_task,
         split_tasks.split_steel_dxf_task,
+        split_tasks.split_pl_dxf_task,
     )
 
     assert {task.name for task in task_objects} == set(EXPECTED_TASKS)

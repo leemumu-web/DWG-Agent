@@ -23,6 +23,12 @@ DrawingSelectiveExportCategory = Literal[
     "other",
 ]
 
+PlXboxSelectiveExportCategory = Literal[
+    "failed_pl",
+    "failed_xbox",
+    "other",
+]
+
 
 class WorkflowBatchExportCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -121,12 +127,56 @@ class DrawingSelectiveExportRead(BaseModel):
     token_expires_at: datetime
 
 
+class PlXboxSelectiveExportCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    categories: list[PlXboxSelectiveExportCategory] = Field(min_length=1, max_length=3)
+
+    @field_validator("categories")
+    @classmethod
+    def categories_must_be_unique(
+        cls,
+        value: list[PlXboxSelectiveExportCategory],
+    ) -> list[PlXboxSelectiveExportCategory]:
+        if len(value) != len(set(value)):
+            raise ValueError("导出类别不能重复")
+        return value
+
+
+class PlXboxSelectiveExportCategoryRead(BaseModel):
+    key: PlXboxSelectiveExportCategory
+    label: str
+    file_count: int
+    size_bytes: int
+    available: bool
+
+
+class PlXboxSelectiveExportPreviewRead(BaseModel):
+    workflow_id: int
+    split_run_id: int
+    categories: list[PlXboxSelectiveExportCategoryRead]
+
+
+class PlXboxSelectiveExportRead(BaseModel):
+    categories: list[PlXboxSelectiveExportCategory]
+    file_count: int
+    source_size_bytes: int
+    filename: str
+    download_url: str
+    token_expires_at: datetime
+
+
 __all__ = [
     "DrawingSelectiveExportCategory",
     "DrawingSelectiveExportCategoryRead",
     "DrawingSelectiveExportCreate",
     "DrawingSelectiveExportPreviewRead",
     "DrawingSelectiveExportRead",
+    "PlXboxSelectiveExportCategory",
+    "PlXboxSelectiveExportCategoryRead",
+    "PlXboxSelectiveExportCreate",
+    "PlXboxSelectiveExportPreviewRead",
+    "PlXboxSelectiveExportRead",
     "WorkflowBatchExportCategoryRead",
     "WorkflowBatchExportCreate",
     "WorkflowBatchExportPreviewRead",

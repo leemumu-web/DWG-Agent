@@ -18,6 +18,7 @@ from app.platform.config.constants import (
     PIPELINE_EXCEL_FINAL,
     PIPELINE_EXCEL_STAGE2,
     PIPELINE_EXCEL_STAGE3,
+    PIPELINE_PL_DXF_SPLIT,
     PIPELINE_REMNANT_CONVERT,
     PIPELINE_REMNANT_PARSE,
     PIPELINE_STEEL_DXF_CLASSIFIER,
@@ -29,6 +30,7 @@ from app.platform.config.constants import (
     TASK_EXCEL_FINAL,
     TASK_EXCEL_STAGE2,
     TASK_EXCEL_STAGE3,
+    TASK_PL_DXF_SPLIT,
     TASK_REMNANT_CONVERT,
     TASK_REMNANT_PARSE,
     TASK_STEEL_DXF_CLASSIFICATION,
@@ -55,6 +57,8 @@ def _pipeline_for(task_type: str) -> str:
         return PIPELINE_STEEL_DXF_CLASSIFIER
     if task_type == TASK_STEEL_DXF_SPLIT:
         return PIPELINE_STEEL_DXF_SPLIT
+    if task_type == TASK_PL_DXF_SPLIT:
+        return PIPELINE_PL_DXF_SPLIT
     if task_type == TASK_REMNANT_CONVERT:
         return PIPELINE_REMNANT_CONVERT
     if task_type == TASK_REMNANT_PARSE:

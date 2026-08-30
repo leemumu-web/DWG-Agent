@@ -35,7 +35,7 @@ DWG-Agent 是面向**钢结构深化设计与加工制造**场景的企业级 CA
 | 🗂️ 自动分类与拆板 | Steel DXF Classifier 1.2.0 分类分流；Steel DXF Split 1.5.2 整批拆板与独立校验（BH/BOX，含几何安全证明）。拆板生产流程默认关闭，需真实业务样本验收 |
 | 📊 Excel 排版处理 | Excel Final 阶段：工作簿规范化、批次/零件/构件建模、五金手册精确查询与最终工作簿生成 |
 | 🔒 输入冻结与文件账本 | 生产批次输入冻结（多个 DWG + 唯一 Excel，清单哈希固化）；文件登记、流转、处置全程 MySQL 账本与审计 |
-| ⚙️ 十阶段工作流编排 | `workflow_runs → workflow_stage_runs → workflow_artifacts` 统筹业务阶段；attempt 世代同步防止旧消息覆盖 |
+| ⚙️ 十二阶段工作流编排 | `workflow_runs → workflow_stage_runs → workflow_artifacts` 统筹业务阶段；attempt 世代同步防止旧消息覆盖 |
 | 🖥️ 管理端与数据控制台 | React 管理端 + 生产任务/文件存储双工作区，RBAC 权限、审计日志与 SSE 任务监视 |
 | 📦 流式交付与物理释放 | 四类文件分批流式导出；服务端确认下载完成后由用户二次确认再删除对象，不生成服务器临时 ZIP |
 
@@ -82,7 +82,7 @@ DWG-Agent 是面向**钢结构深化设计与加工制造**场景的企业级 CA
 
 | 领域 | 状态 | 当前实现 | 关键边界 |
 |---|---|---|---|
-| Web 与 API | ✅ | React 管理端、Nginx 网关、190 个 OpenAPI path 和 219 个 operation | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
+| Web 与 API | ✅ | React 管理端、Nginx 网关、194 个 OpenAPI path 和 223 个 operation | 生产配置关闭 `/docs`、`/redoc`、`/openapi.json`；Nginx 不是授权边界 |
 | 数据 | ✅ | MySQL 8.x 是唯一运行时业务事实源；Alembic 管理 47 张模型表，Celery 按需创建 8 张 broker/result 表 | 空迁移库为 48 张表；Celery runtime 全部初始化后最多 56 张；SQLite 只用于 pytest |
 | 异步任务 | ✅ | Celery 使用 MySQL SQLAlchemy transport 和 MySQL result backend | 适合当前有界 worker 拓扑，不等同于高吞吐消息队列 |
 | 运行与通信 | ✅ | MySQL 持久化 Worker 活动、控制平面事件与管理员运维消息 | RabbitMQ、Beat、Outbox 与 Windows Node Agent 为明确待实现合同 |
@@ -94,7 +94,7 @@ DWG-Agent 是面向**钢结构深化设计与加工制造**场景的企业级 CA
 
 | 领域 | 状态 | 当前实现 | 关键边界 |
 |---|---|---|---|
-| Linux 生产工作流 | ⚠️ | 多 DWG + 单 Excel 输入账本、服务器 DWG→DXF/配对/冻结、Steel DXF Classifier 1.2.0 分类分流、Steel DXF Split 1.5.2 整批拆板与独立校验、十阶段、冻结 Excel 第一阶段与 BH 左右进第二阶段 Job、attempt 同步、独立批次详情页，以及四类文件流式分批导出和下载后确认物理释放 | 拆板与 Excel 第二阶段仍需真实 MinIO/MySQL、专用 worker 和业务样本验收；分批导出不生成服务器临时 ZIP，只有服务端确认下载流完成并由用户二次确认后才删除对象；CAM 工作包、Windows/SinoCAM、结果接纳为等待上线接口 |
+| Linux 生产工作流 | ⚠️ | 多 DWG + 单 Excel 输入账本、服务器 DWG→DXF/配对/冻结、Steel DXF Classifier 1.2.0 分类分流、Steel DXF Split 1.5.2 整批拆板与独立校验、十二阶段、冻结 Excel 第一阶段与 BH 左右进第二阶段 Job、attempt 同步、独立批次详情页，以及四类文件流式分批导出和下载后确认物理释放 | 拆板与 Excel 第二阶段仍需真实 MinIO/MySQL、专用 worker 和业务样本验收；分批导出不生成服务器临时 ZIP，只有服务端确认下载流完成并由用户二次确认后才删除对象；CAM 工作包、Windows/SinoCAM、结果接纳为等待上线接口 |
 | 转换管线 | ⚠️ | DWG → DXF 与 DXF → DWG 独立工作台、双向原文件名展示、转换结果下载、DXF 鉴权 SVG 预览，以及 DXF → Excel、Excel Final 服务路径 | 服务器模板启用双向 CAD 转换；DXF → Excel 继续关闭；在线预览有独立大小/复杂度上限 |
 | Agent | ⏸️ | 三张 MySQL 表、会话记忆、API/权限和机器可读能力契约已归 `automation` | 核心执行留白；无 Agent task、LLM/LangGraph/MCP 执行器，`AGENT_ENABLED=false` |
 | Windows CAD worker | ⏸️ | Node/CAM/协议目录和 draft 控制面合同保留 | 节点认证、租约/fencing、左右进、交互式 CAD、CAM Runner/SinoCAM Adapter 未实现；Steel DXF 分类与拆板属于 Linux 流程 |
