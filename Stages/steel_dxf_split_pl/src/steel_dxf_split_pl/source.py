@@ -5,7 +5,7 @@ from pathlib import Path
 
 from ezdxf.entities import DXFEntity, MText, Text
 
-from steel_dxf_split.dxf_io import (
+from .dxf_io import (
     DXFLoadError,
     iter_modelspace_entities,
     load_document,

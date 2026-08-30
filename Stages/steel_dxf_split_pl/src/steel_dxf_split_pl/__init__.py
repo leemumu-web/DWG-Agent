@@ -1,3 +1,26 @@
-"""Standalone launcher package for PL bent-plate splitting."""
+from __future__ import annotations
 
-__version__ = "0.1.0"
+from .compiler import batch_payload, compile_context, split_pl
+from .contracts import (
+    PLBatchResult,
+    PLCompilation,
+    PLItemResult,
+    PLMetadata,
+    PLSourceContext,
+    PLSplitError,
+)
+
+__version__ = "0.2.0"
+
+__all__ = [
+    "PLBatchResult",
+    "PLCompilation",
+    "PLItemResult",
+    "PLMetadata",
+    "PLSourceContext",
+    "PLSplitError",
+    "batch_payload",
+    "compile_context",
+    "split_pl",
+    "__version__",
+]

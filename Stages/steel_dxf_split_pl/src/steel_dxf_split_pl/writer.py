@@ -13,8 +13,8 @@ from ezdxf.math import ConstructionEllipse
 from shapely.geometry import LineString
 from shapely.ops import polylabel, unary_union
 
-from steel_dxf_split.dxf_io import load_document
-from steel_dxf_split.part_mark_layout import (
+from .dxf_io import load_document
+from .part_mark_layout import (
     PartMarkLayoutError,
     PartMarkTarget,
     layout_part_marks,

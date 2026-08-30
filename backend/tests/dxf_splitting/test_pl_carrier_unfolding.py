@@ -7,7 +7,7 @@ import ezdxf
 import pytest
 from ezdxf.entities import DXFEntity
 from shapely.geometry import Polygon
-from steel_dxf_split.pl.contracts import (
+from steel_dxf_split_pl.contracts import (
     DevelopedPlate,
     LongitudinalIntervalEvidence,
     LongitudinalProof,
@@ -17,14 +17,14 @@ from steel_dxf_split.pl.contracts import (
     SectionProof,
     StationBand,
 )
-from steel_dxf_split.pl.development import (
+from steel_dxf_split_pl.development import (
     _merge_collinear_lines,
     calculate_target,
     ceil_tenth_mm,
     transform_outline,
 )
-from steel_dxf_split.pl.geometry import flatten_entity, validate_closed_outline
-from steel_dxf_split.pl.longitudinal import (
+from steel_dxf_split_pl.geometry import flatten_entity, validate_closed_outline
+from steel_dxf_split_pl.longitudinal import (
     analyze_longitudinal_outline,
     canonical_boundary_pieces,
     select_carrier_zone,
@@ -741,7 +741,7 @@ def test_transform_exactly_splits_native_curves_at_station_boundaries(
 def test_saved_validation_accepts_additional_native_segmentation(
     tmp_path: Path,
 ) -> None:
-    from steel_dxf_split.pl.writer import validate_saved_pl_dxf, write_pl_dxf
+    from steel_dxf_split_pl.writer import validate_saved_pl_dxf, write_pl_dxf
 
     source_entities, developed = _crossing_curve_developed("ARC")
     transformed = developed.transformed_entities
@@ -783,7 +783,7 @@ def test_saved_validation_accepts_additional_native_segmentation(
 
 
 def test_saved_validation_rejects_a_shifted_carrier_station(tmp_path: Path) -> None:
-    from steel_dxf_split.pl.writer import write_pl_dxf
+    from steel_dxf_split_pl.writer import write_pl_dxf
 
     _, developed = _crossing_curve_developed("ARC")
     carrier_right_x = sum(
@@ -826,7 +826,7 @@ def test_saved_validation_rejects_a_shifted_carrier_station(tmp_path: Path) -> N
 def test_saved_validation_does_not_use_upper_fragments_for_a_missing_lower_station(
     tmp_path: Path,
 ) -> None:
-    from steel_dxf_split.pl.writer import validate_saved_pl_dxf, write_pl_dxf
+    from steel_dxf_split_pl.writer import validate_saved_pl_dxf, write_pl_dxf
 
     developed = _q7_like_developed()
     output = tmp_path / "chain-confusion.dxf"
@@ -1639,7 +1639,7 @@ def test_mixed_curve_and_overlapping_lines_preserve_native_provenance(
     )
     assert {entity.dxftype() for entity in transformed} == {"ELLIPSE", "LINE"}
 
-    from steel_dxf_split.pl.writer import write_pl_dxf
+    from steel_dxf_split_pl.writer import write_pl_dxf
 
     developed = DevelopedPlate(
         metadata=PLMetadata(
@@ -1737,7 +1737,7 @@ def test_overlapping_collinear_boundary_fragments_are_canonicalized(
 
     assert validate_closed_outline(transformed).area == pytest.approx(82_000.0)
 
-    from steel_dxf_split.pl.writer import write_pl_dxf
+    from steel_dxf_split_pl.writer import write_pl_dxf
 
     developed = DevelopedPlate(
         metadata=PLMetadata("anonymous-overlap", 30.0, 100.0, 810.0),

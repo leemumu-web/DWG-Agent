@@ -10,7 +10,7 @@ import ezdxf
 import pytest
 from ezdxf import bbox
 from ezdxf.entities import DXFEntity
-from steel_dxf_split.pl import split_pl
+from steel_dxf_split_pl import split_pl
 
 EXPECTED_CARRIER_POSITION = {
     "q4-b-181": "middle",

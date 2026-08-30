@@ -8,9 +8,9 @@ from pathlib import Path
 import ezdxf
 import pytest
 from ezdxf import bbox
-from steel_dxf_split.pl import split_pl
-from steel_dxf_split.pl.development import _merge_collinear_lines
-from steel_dxf_split.pl.geometry import _proved_components
+from steel_dxf_split_pl import split_pl
+from steel_dxf_split_pl.development import _merge_collinear_lines
+from steel_dxf_split_pl.geometry import _proved_components
 
 COVERED_CENTER_OUTER_ONLY_PARTS = {
     "2b1-pb-77",

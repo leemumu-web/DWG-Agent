@@ -6,7 +6,7 @@
 
 **Architecture:** `Stages/steel_dxf_split_pl` becomes the deep PL Module and owns parsing, geometry, development, writing, batch orchestration, and CLI behavior behind `split_pl()` and `steel-dxf-split-pl`. The backend remains an Adapter: it freezes classifier-confirmed PL inputs, invokes the Stage in a subprocess, independently validates saved DXFs, records results in the existing split ledger, and projects the PL run through the workflow interface. XBOX is not a candidate in this delivery; it remains classification-only and the interface documents its future seam.
 
-**Tech Stack:** Python 3.12, ezdxf 1.4.4, Shapely 2.1, FastAPI, SQLAlchemy, Celery, pytest, React/TypeScript, Vitest.
+**Tech Stack:** Python 3.12–3.14, ezdxf 1.4.4, Shapely 2.1, FastAPI, SQLAlchemy, Celery, pytest, React/TypeScript, Vitest.
 
 **Spec:** `docs/architecture/pl-xbox-split-frontend-contract.md` from frontend commit `2c1d8b71`, refined by the 2026-08-30 user decision that this delivery processes PL only and reserves XBOX for a later implementation.
 

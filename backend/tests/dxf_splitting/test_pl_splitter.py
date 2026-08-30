@@ -11,19 +11,19 @@ from pathlib import Path
 
 import ezdxf
 import pytest
-from steel_dxf_split.pl.contracts import PLSplitError
+from steel_dxf_split_pl.contracts import PLSplitError
 
 from tests.support.paths import REPO_ROOT
 
 
 def test_k_half_neutral_axis_uses_the_mean_of_both_plate_faces() -> None:
-    development = importlib.import_module("steel_dxf_split.pl.development")
+    development = importlib.import_module("steel_dxf_split_pl.development")
 
     assert development.neutral_axis_length((470.0, 472.0)) == pytest.approx(471.0)
 
 
 def test_development_target_uses_the_largest_of_projection_k_and_bom_lengths() -> None:
-    development = importlib.import_module("steel_dxf_split.pl.development")
+    development = importlib.import_module("steel_dxf_split_pl.development")
 
     target = development.calculate_target(
         projection_length_mm=399.0,
@@ -51,7 +51,7 @@ def test_length_is_ceiled_to_one_decimal_without_arbitrary_allowance(
     source: Decimal,
     expected: Decimal,
 ) -> None:
-    development = importlib.import_module("steel_dxf_split.pl.development")
+    development = importlib.import_module("steel_dxf_split_pl.development")
 
     assert development.ceil_tenth_mm(source) == expected
 
@@ -114,7 +114,7 @@ def _save_combined_metadata_dxf(path: Path) -> None:
 def test_combined_source_expands_each_top_level_sheet_and_binds_its_metadata(
     tmp_path: Path,
 ) -> None:
-    source = importlib.import_module("steel_dxf_split.pl.source")
+    source = importlib.import_module("steel_dxf_split_pl.source")
     drawing = tmp_path / "combined.dxf"
     _save_combined_metadata_dxf(drawing)
 
@@ -138,7 +138,7 @@ def test_combined_source_expands_each_top_level_sheet_and_binds_its_metadata(
 
 
 def test_part_number_parser_strips_only_the_p_equals_prefix() -> None:
-    source = importlib.import_module("steel_dxf_split.pl.source")
+    source = importlib.import_module("steel_dxf_split_pl.source")
 
     assert source.canonical_part_number("p=q6-b-62") == "q6-b-62"
     assert source.canonical_part_number("Q6-B-62") == "Q6-B-62"
@@ -147,7 +147,7 @@ def test_part_number_parser_strips_only_the_p_equals_prefix() -> None:
 def test_conflicting_part_marks_are_rejected_instead_of_using_the_filename(
     tmp_path: Path,
 ) -> None:
-    source = importlib.import_module("steel_dxf_split.pl.source")
+    source = importlib.import_module("steel_dxf_split_pl.source")
     drawing = tmp_path / "misleading-name.dxf"
     document = _new_source_document()
     _add_metadata(
@@ -172,7 +172,7 @@ def test_conflicting_part_marks_are_rejected_instead_of_using_the_filename(
 def test_missing_part_mark_uses_the_unique_part_number_on_the_pl_row(
     tmp_path: Path,
 ) -> None:
-    source = importlib.import_module("steel_dxf_split.pl.source")
+    source = importlib.import_module("steel_dxf_split_pl.source")
     drawing = tmp_path / "missing-part-mark.dxf"
     document = _new_source_document()
     layout = document.modelspace()
@@ -196,7 +196,7 @@ def test_missing_part_mark_uses_the_unique_part_number_on_the_pl_row(
 def test_part_mark_remains_authoritative_over_a_pl_row_part_number(
     tmp_path: Path,
 ) -> None:
-    source = importlib.import_module("steel_dxf_split.pl.source")
+    source = importlib.import_module("steel_dxf_split_pl.source")
     drawing = tmp_path / "part-mark-authority.dxf"
     document = _new_source_document()
     _add_metadata(
@@ -217,7 +217,7 @@ def test_part_mark_remains_authoritative_over_a_pl_row_part_number(
 
 
 def test_multiple_pl_row_part_numbers_are_rejected(tmp_path: Path) -> None:
-    source = importlib.import_module("steel_dxf_split.pl.source")
+    source = importlib.import_module("steel_dxf_split_pl.source")
     drawing = tmp_path / "ambiguous-pl-row-part-number.dxf"
     document = _new_source_document()
     layout = document.modelspace()
@@ -241,7 +241,7 @@ def test_multiple_pl_row_part_numbers_are_rejected(tmp_path: Path) -> None:
 
 
 def test_multiple_pl_rows_are_rejected(tmp_path: Path) -> None:
-    source = importlib.import_module("steel_dxf_split.pl.source")
+    source = importlib.import_module("steel_dxf_split_pl.source")
     drawing = tmp_path / "multiple.dxf"
     document = _new_source_document()
     _add_metadata(
@@ -267,7 +267,7 @@ def test_multiple_pl_rows_are_rejected(tmp_path: Path) -> None:
 
 
 def test_ambiguous_bom_cells_on_the_pl_row_are_rejected(tmp_path: Path) -> None:
-    source = importlib.import_module("steel_dxf_split.pl.source")
+    source = importlib.import_module("steel_dxf_split_pl.source")
     drawing = tmp_path / "ambiguous-length.dxf"
     document = _new_source_document()
     _add_metadata(
@@ -290,7 +290,7 @@ def test_ambiguous_bom_cells_on_the_pl_row_are_rejected(tmp_path: Path) -> None:
 
 
 def test_input_discovery_is_frozen_sorted_and_first_level_only(tmp_path: Path) -> None:
-    source = importlib.import_module("steel_dxf_split.pl.source")
+    source = importlib.import_module("steel_dxf_split_pl.source")
     input_dir = tmp_path / "input"
     output_dir = tmp_path / "output"
     input_dir.mkdir()
@@ -310,7 +310,7 @@ def test_input_and_output_directories_must_be_disjoint(
     tmp_path: Path,
     relation: str,
 ) -> None:
-    source = importlib.import_module("steel_dxf_split.pl.source")
+    source = importlib.import_module("steel_dxf_split_pl.source")
     if relation == "same":
         input_dir = output_dir = tmp_path / "shared"
         input_dir.mkdir()
@@ -330,7 +330,7 @@ def test_input_and_output_directories_must_be_disjoint(
 
 
 def test_dwg_input_is_rejected_with_conversion_guidance(tmp_path: Path) -> None:
-    source = importlib.import_module("steel_dxf_split.pl.source")
+    source = importlib.import_module("steel_dxf_split_pl.source")
     drawing = tmp_path / "source.dwg"
     drawing.write_bytes(b"not-a-dwg")
 
@@ -410,7 +410,7 @@ def _save_geometry_source(
 
 
 def _load_geometry_context(path: Path):
-    source = importlib.import_module("steel_dxf_split.pl.source")
+    source = importlib.import_module("steel_dxf_split_pl.source")
     [context] = source.load_source_contexts(path)
     return context, source.extract_metadata(context)
 
@@ -418,7 +418,7 @@ def _load_geometry_context(path: Path):
 def test_geometry_proof_selects_only_the_main_outer_boundary_and_unique_section(
     tmp_path: Path,
 ) -> None:
-    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    geometry = importlib.import_module("steel_dxf_split_pl.geometry")
     drawing = tmp_path / "geometry.dxf"
     _save_geometry_source(drawing)
     context, metadata = _load_geometry_context(drawing)
@@ -434,7 +434,7 @@ def test_geometry_proof_selects_only_the_main_outer_boundary_and_unique_section(
 
 
 def test_section_area_over_thickness_handles_a_sloped_end_cap(tmp_path: Path) -> None:
-    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    geometry = importlib.import_module("steel_dxf_split_pl.geometry")
     drawing = tmp_path / "sloped-cap.dxf"
     document = _new_source_document()
     layout = document.modelspace()
@@ -461,7 +461,7 @@ def test_section_area_over_thickness_handles_a_sloped_end_cap(tmp_path: Path) ->
 def test_main_view_hole_is_retained_as_a_cutout_group(
     tmp_path: Path,
 ) -> None:
-    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    geometry = importlib.import_module("steel_dxf_split_pl.geometry")
     drawing = tmp_path / "hole.dxf"
     _save_geometry_source(drawing, include_hole=True)
     context, metadata = _load_geometry_context(drawing)
@@ -473,7 +473,7 @@ def test_main_view_hole_is_retained_as_a_cutout_group(
 
 
 def test_large_circle_covered_small_center_keeps_only_outer(tmp_path: Path) -> None:
-    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    geometry = importlib.import_module("steel_dxf_split_pl.geometry")
     drawing = tmp_path / "covered-center-hole.dxf"
     _save_geometry_source(drawing, small_circle_offset_mm=10.3)
     context, metadata = _load_geometry_context(drawing)
@@ -486,7 +486,7 @@ def test_large_circle_covered_small_center_keeps_only_outer(tmp_path: Path) -> N
 
 
 def test_small_center_outside_large_circle_keeps_both(tmp_path: Path) -> None:
-    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    geometry = importlib.import_module("steel_dxf_split_pl.geometry")
     drawing = tmp_path / "offset-holes.dxf"
     _save_geometry_source(drawing, small_circle_offset_mm=20.2)
     context, metadata = _load_geometry_context(drawing)
@@ -499,8 +499,8 @@ def test_small_center_outside_large_circle_keeps_both(tmp_path: Path) -> None:
 def test_bolt_cutout_is_scaled_and_written_with_the_pl_outline(
     tmp_path: Path,
 ) -> None:
-    compiler = importlib.import_module("steel_dxf_split.pl.compiler")
-    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    compiler = importlib.import_module("steel_dxf_split_pl.compiler")
+    geometry = importlib.import_module("steel_dxf_split_pl.geometry")
     drawing = tmp_path / "bolt-cutout.dxf"
     _save_geometry_source(drawing, include_hole=True)
 
@@ -513,7 +513,7 @@ def test_bolt_cutout_is_scaled_and_written_with_the_pl_outline(
 
 
 def test_two_equally_credible_main_views_are_rejected(tmp_path: Path) -> None:
-    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    geometry = importlib.import_module("steel_dxf_split_pl.geometry")
     drawing = tmp_path / "two-main-views.dxf"
     _save_geometry_source(drawing, duplicate_main=True)
     context, metadata = _load_geometry_context(drawing)
@@ -533,7 +533,7 @@ def test_width_tolerance_accepts_only_a_floating_point_tail(
     height: float,
     accepted: bool,
 ) -> None:
-    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    geometry = importlib.import_module("steel_dxf_split_pl.geometry")
     drawing = tmp_path / "width-floating-tail.dxf"
     document = _new_source_document()
     layout = document.modelspace()
@@ -562,7 +562,7 @@ def test_width_tolerance_accepts_only_a_floating_point_tail(
 
 
 def test_bom_length_disambiguates_a_vertical_end_view(tmp_path: Path) -> None:
-    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    geometry = importlib.import_module("steel_dxf_split_pl.geometry")
     drawing = tmp_path / "vertical-end-view.dxf"
     document = _new_source_document()
     layout = document.modelspace()
@@ -605,7 +605,7 @@ def test_main_boundary_area_noise_has_a_narrow_tolerance(
     delta: float,
     accepted: bool,
 ) -> None:
-    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    geometry = importlib.import_module("steel_dxf_split_pl.geometry")
     drawing = tmp_path / "tiny-boundary-area-noise.dxf"
     _save_geometry_source(drawing, include_section=False)
     context, metadata = _load_geometry_context(drawing)
@@ -636,7 +636,7 @@ def test_main_boundary_area_noise_has_a_narrow_tolerance(
 
 
 def test_output_station_proof_uses_only_the_topology_tolerance() -> None:
-    writer = importlib.import_module("steel_dxf_split.pl.writer")
+    writer = importlib.import_module("steel_dxf_split_pl.writer")
     document = _new_source_document()
     _add_closed_polygon(
         document.modelspace(),
@@ -657,7 +657,7 @@ def test_output_station_proof_uses_only_the_topology_tolerance() -> None:
 
 
 def test_missing_closed_section_is_an_ordinary_flat_plate(tmp_path: Path) -> None:
-    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    geometry = importlib.import_module("steel_dxf_split_pl.geometry")
     drawing = tmp_path / "missing-section.dxf"
     _save_geometry_source(drawing, include_section=False)
     context, metadata = _load_geometry_context(drawing)
@@ -672,7 +672,7 @@ def test_missing_closed_section_is_an_ordinary_flat_plate(tmp_path: Path) -> Non
 def test_unmatched_independent_closed_view_is_not_assumed_to_be_flat(
     tmp_path: Path,
 ) -> None:
-    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    geometry = importlib.import_module("steel_dxf_split_pl.geometry")
     drawing = tmp_path / "unmatched-view.dxf"
     _save_geometry_source(drawing, include_section=False)
     document = ezdxf.readfile(drawing)
@@ -690,7 +690,7 @@ def test_unmatched_independent_closed_view_is_not_assumed_to_be_flat(
 
 
 def test_flat_plate_uses_projection_and_bom_without_k_factor(tmp_path: Path) -> None:
-    compiler = importlib.import_module("steel_dxf_split.pl.compiler")
+    compiler = importlib.import_module("steel_dxf_split_pl.compiler")
     drawing = tmp_path / "flat.dxf"
     output = tmp_path / "flat-output"
     _save_geometry_source(drawing, include_section=False)
@@ -716,7 +716,7 @@ def test_flat_plate_uses_projection_and_bom_without_k_factor(tmp_path: Path) -> 
 def test_flat_plate_completes_two_short_tip_edges_like_professional_result(
     tmp_path: Path,
 ) -> None:
-    compiler = importlib.import_module("steel_dxf_split.pl.compiler")
+    compiler = importlib.import_module("steel_dxf_split_pl.compiler")
     drawing = tmp_path / "FJ-F3-cb-121.dxf"
     output = tmp_path / "output"
     document = _new_source_document()
@@ -773,7 +773,7 @@ def test_flat_plate_completes_two_short_tip_edges_like_professional_result(
 def test_flat_plate_tip_completion_prefers_the_proved_outer_source_face(
     tmp_path: Path,
 ) -> None:
-    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    geometry = importlib.import_module("steel_dxf_split_pl.geometry")
     drawing = tmp_path / "FJ-F3-cb-104.dxf"
     document = _new_source_document()
     layout = document.modelspace()
@@ -838,7 +838,7 @@ def test_flat_plate_tip_completion_prefers_the_proved_outer_source_face(
 def test_flat_plate_tip_completion_keeps_normal_v_notch_and_collinear_segments(
     tmp_path: Path,
 ) -> None:
-    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    geometry = importlib.import_module("steel_dxf_split_pl.geometry")
     drawing = tmp_path / "normal-v-notch.dxf"
     document = _new_source_document()
     layout = document.modelspace()
@@ -877,7 +877,7 @@ def test_flat_plate_tip_completion_keeps_normal_v_notch_and_collinear_segments(
 def test_flat_plate_recovers_fragmented_round_corner_as_one_native_arc(
     tmp_path: Path,
 ) -> None:
-    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    geometry = importlib.import_module("steel_dxf_split_pl.geometry")
     drawing = tmp_path / "flat-rounded-corner.dxf"
     document = _new_source_document()
     layout = document.modelspace()
@@ -927,7 +927,7 @@ def test_flat_plate_recovers_fragmented_round_corner_as_one_native_arc(
 def test_flat_plate_recovers_a_fragmented_round_notch_without_extra_nodes(
     tmp_path: Path,
 ) -> None:
-    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    geometry = importlib.import_module("steel_dxf_split_pl.geometry")
     drawing = tmp_path / "flat-round-notch.dxf"
     document = _new_source_document()
     layout = document.modelspace()
@@ -994,7 +994,7 @@ def test_flat_plate_recovers_a_fragmented_round_notch_without_extra_nodes(
 
 
 def test_non_x_main_axis_is_rejected(tmp_path: Path) -> None:
-    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    geometry = importlib.import_module("steel_dxf_split_pl.geometry")
     drawing = tmp_path / "vertical-main.dxf"
     document = _new_source_document()
     layout = document.modelspace()
@@ -1022,7 +1022,7 @@ def test_non_x_main_axis_is_rejected(tmp_path: Path) -> None:
 def test_x_axis_main_can_be_shorter_than_width_and_use_nominal_width_rounding(
     tmp_path: Path,
 ) -> None:
-    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    geometry = importlib.import_module("steel_dxf_split_pl.geometry")
     drawing = tmp_path / "short-wide-main.dxf"
     document = _new_source_document()
     layout = document.modelspace()
@@ -1052,7 +1052,7 @@ def test_x_axis_main_can_be_shorter_than_width_and_use_nominal_width_rounding(
 
 
 def test_translated_equivalent_sections_are_one_geometric_proof(tmp_path: Path) -> None:
-    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    geometry = importlib.import_module("steel_dxf_split_pl.geometry")
     drawing = tmp_path / "equivalent-sections.dxf"
     document = _new_source_document()
     layout = document.modelspace()
@@ -1084,7 +1084,7 @@ def test_translated_equivalent_sections_are_one_geometric_proof(tmp_path: Path) 
 def test_sub_tolerance_boundary_noise_is_not_emitted_as_a_zero_length_cut(
     tmp_path: Path,
 ) -> None:
-    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
+    geometry = importlib.import_module("steel_dxf_split_pl.geometry")
     drawing = tmp_path / "tiny-boundary-edge.dxf"
     document = _new_source_document()
     layout = document.modelspace()
@@ -1146,10 +1146,10 @@ def _save_curved_geometry_source(path: Path) -> None:
 
 
 def _developed_plate(path: Path):
-    contracts = importlib.import_module("steel_dxf_split.pl.contracts")
-    geometry = importlib.import_module("steel_dxf_split.pl.geometry")
-    development = importlib.import_module("steel_dxf_split.pl.development")
-    longitudinal = importlib.import_module("steel_dxf_split.pl.longitudinal")
+    contracts = importlib.import_module("steel_dxf_split_pl.contracts")
+    geometry = importlib.import_module("steel_dxf_split_pl.geometry")
+    development = importlib.import_module("steel_dxf_split_pl.development")
+    longitudinal = importlib.import_module("steel_dxf_split_pl.longitudinal")
     context, metadata = _load_geometry_context(path)
     outline, section = geometry.analyze_geometry(context, metadata)
     longitudinal_proof = longitudinal.analyze_longitudinal_outline(
@@ -1178,7 +1178,7 @@ def _developed_plate(path: Path):
 def test_writer_emits_clean_r2007_mm_layers_label_and_native_downstream_arcs(
     tmp_path: Path,
 ) -> None:
-    writer = importlib.import_module("steel_dxf_split.pl.writer")
+    writer = importlib.import_module("steel_dxf_split_pl.writer")
     source = tmp_path / "curved.dxf"
     output = tmp_path / "q6-b-62.dxf"
     _save_curved_geometry_source(source)
@@ -1209,7 +1209,7 @@ def test_writer_emits_clean_r2007_mm_layers_label_and_native_downstream_arcs(
 def test_saved_output_validation_rejects_non_manufacturing_entities(
     tmp_path: Path,
 ) -> None:
-    writer = importlib.import_module("steel_dxf_split.pl.writer")
+    writer = importlib.import_module("steel_dxf_split_pl.writer")
     source = tmp_path / "curved.dxf"
     output = tmp_path / "q6-b-62.dxf"
     _save_curved_geometry_source(source)
@@ -1232,7 +1232,7 @@ def test_saved_output_validation_rejects_non_manufacturing_entities(
 def test_writer_shrinks_a_pl_label_that_cannot_retain_thirty_mm(
     tmp_path: Path,
 ) -> None:
-    writer = importlib.import_module("steel_dxf_split.pl.writer")
+    writer = importlib.import_module("steel_dxf_split_pl.writer")
     source = tmp_path / "curved.dxf"
     output = tmp_path / "long-label.dxf"
     _save_curved_geometry_source(source)
@@ -1255,7 +1255,7 @@ def test_writer_shrinks_a_pl_label_that_cannot_retain_thirty_mm(
 
 
 def test_writer_uses_a_smaller_label_for_a_small_flat_plate(tmp_path: Path) -> None:
-    compiler = importlib.import_module("steel_dxf_split.pl.compiler")
+    compiler = importlib.import_module("steel_dxf_split_pl.compiler")
     source = tmp_path / "small-flat.dxf"
     output = tmp_path / "small-flat-output"
     document = _new_source_document()
@@ -1355,7 +1355,7 @@ def _save_combined_geometry_dxf(
 def test_batch_split_publishes_one_dxf_per_part_and_complete_json_report(
     tmp_path: Path,
 ) -> None:
-    compiler = importlib.import_module("steel_dxf_split.pl.compiler")
+    compiler = importlib.import_module("steel_dxf_split_pl.compiler")
     source = tmp_path / "combined.dxf"
     output = tmp_path / "output"
     _save_combined_geometry_dxf(source)
@@ -1414,7 +1414,7 @@ def test_batch_split_publishes_one_dxf_per_part_and_complete_json_report(
 
 
 def test_rejected_sheet_does_not_prevent_valid_sheet_publication(tmp_path: Path) -> None:
-    compiler = importlib.import_module("steel_dxf_split.pl.compiler")
+    compiler = importlib.import_module("steel_dxf_split_pl.compiler")
     source = tmp_path / "partial.dxf"
     output = tmp_path / "output"
     _save_combined_geometry_dxf(source, reject_second=True)
@@ -1432,7 +1432,7 @@ def test_rejected_sheet_does_not_prevent_valid_sheet_publication(tmp_path: Path)
 
 
 def test_existing_part_output_is_preserved_without_overwrite(tmp_path: Path) -> None:
-    compiler = importlib.import_module("steel_dxf_split.pl.compiler")
+    compiler = importlib.import_module("steel_dxf_split_pl.compiler")
     source = tmp_path / "combined.dxf"
     output = tmp_path / "output"
     output.mkdir()
@@ -1451,7 +1451,7 @@ def test_existing_part_output_is_preserved_without_overwrite(tmp_path: Path) -> 
 
 
 def test_overwrite_replaces_only_the_exact_owned_part_target(tmp_path: Path) -> None:
-    compiler = importlib.import_module("steel_dxf_split.pl.compiler")
+    compiler = importlib.import_module("steel_dxf_split_pl.compiler")
     source = tmp_path / "combined.dxf"
     output = tmp_path / "output"
     output.mkdir()
@@ -1471,7 +1471,7 @@ def test_overwrite_replaces_only_the_exact_owned_part_target(tmp_path: Path) -> 
 def test_duplicate_part_numbers_are_rejected_before_any_target_is_published(
     tmp_path: Path,
 ) -> None:
-    compiler = importlib.import_module("steel_dxf_split.pl.compiler")
+    compiler = importlib.import_module("steel_dxf_split_pl.compiler")
     source = tmp_path / "duplicate.dxf"
     output = tmp_path / "output"
     document = _new_source_document()
@@ -1500,7 +1500,7 @@ def test_cli_returns_zero_one_and_two_with_json_stdout(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    cli = importlib.import_module("steel_dxf_split.pl.cli")
+    cli = importlib.import_module("steel_dxf_split_pl.cli")
     valid = tmp_path / "valid.dxf"
     partial = tmp_path / "partial.dxf"
     invalid = tmp_path / "invalid.dwg"
@@ -1530,7 +1530,7 @@ def test_pl_runtime_does_not_load_bh_box_pipeline_or_merge_modules(
         (
             "import json, sys",
             "from pathlib import Path",
-            "from steel_dxf_split.pl import split_pl",
+            "from steel_dxf_split_pl import split_pl",
             f"result = split_pl(Path({str(source)!r}), Path({str(output)!r}))",
             "forbidden = sorted(name for name in sys.modules if name == 'steel_dxf_split.pipeline' or name.startswith('steel_dxf_split.box') or name.startswith('steel_dxf_split.bh_') or name == 'tools.merge_sheet')",
             "print(json.dumps({'exit_code': result.exit_code, 'forbidden': forbidden}))",
@@ -1583,3 +1583,40 @@ def test_independent_stage_launcher_executes_pl_without_bh_box_entrypoint(
         "q6-b-62.dxf",
         "q6-b-71.dxf",
     ]
+
+
+def test_independent_stage_owns_pl_runtime_without_unified_split_package(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "combined.dxf"
+    output = tmp_path / "output"
+    _save_combined_geometry_dxf(source)
+    launcher_source = REPO_ROOT / "Stages" / "steel_dxf_split_pl" / "src"
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = os.pathsep.join(
+        filter(None, (str(launcher_source), environment.get("PYTHONPATH")))
+    )
+    script = "\n".join(
+        (
+            "import json, sys",
+            "from contextlib import redirect_stdout",
+            "from io import StringIO",
+            "from steel_dxf_split_pl.cli import main",
+            "stdout = StringIO()",
+            f"with redirect_stdout(stdout): exit_code = main([{str(source)!r}, '--output-dir', {str(output)!r}])",
+            "forbidden = sorted(name for name in sys.modules if name == 'steel_dxf_split' or name.startswith('steel_dxf_split.'))",
+            "print(json.dumps({'exit_code': exit_code, 'forbidden': forbidden}))",
+        )
+    )
+
+    completed = subprocess.run(
+        [sys.executable, "-c", script],
+        check=True,
+        cwd=REPO_ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+    )
+
+    payload = json.loads(completed.stdout)
+    assert payload == {"exit_code": 0, "forbidden": []}
