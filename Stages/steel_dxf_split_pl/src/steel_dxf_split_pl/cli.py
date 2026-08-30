@@ -21,6 +21,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="仅覆盖本工具拥有的同名零件结果和报告",
     )
+    parser.add_argument(
+        "--authorize-project-tekla-pl-dxf-v1",
+        action="store_true",
+        help="声明输入来自平台冻结并分类确认的 Tekla PL DXF",
+    )
     return parser
 
 

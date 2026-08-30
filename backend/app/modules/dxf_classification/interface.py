@@ -75,6 +75,15 @@ def list_split_candidate_inputs(db, workflow_id: int) -> list[DxfSplitCandidateI
     return list_inputs(db, workflow_id)
 
 
+def list_pl_split_candidate_inputs(db, workflow_id: int) -> list[DxfSplitCandidateInput]:
+    """列出只允许进入独立 PL Stage 的冻结 PL DXF。"""
+    from app.modules.dxf_classification.persistence import (
+        list_pl_split_candidate_inputs as list_inputs,
+    )
+
+    return list_inputs(db, workflow_id)
+
+
 def load_bh_stage2_classification_batch(
     db,
     workflow_id: int,
@@ -172,6 +181,7 @@ __all__ = [
     "latest_classification_run",
     "load_bh_stage2_classification_batch",
     "list_next_stage_inputs",
+    "list_pl_split_candidate_inputs",
     "list_split_candidate_inputs",
     "run_dxf_classification",
 ]
