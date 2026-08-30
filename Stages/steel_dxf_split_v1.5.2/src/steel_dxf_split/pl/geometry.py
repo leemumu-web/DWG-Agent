@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import dist, radians
+from math import atan2, degrees, dist, hypot, radians, sqrt, tau
 from typing import cast
 
 from ezdxf import bbox
@@ -22,7 +22,15 @@ TOPOLOGY_TOLERANCE_MM = 0.1
 FLATTEN_SAGITTA_MM = 0.001
 BOUNDARY_TOLERANCE_MM = 0.05
 NOMINAL_WIDTH_TOLERANCE_MM = 1.0
+NUMERIC_EPSILON_MM = 1e-6
+MAIN_BOUNDARY_AREA_TOLERANCE_MM2 = 0.02
 MAX_CONTAINED_CUTOUT_AREA_RATIO = 0.1
+FLAT_CURVE_MAX_SAGITTA_MM = 0.7
+FLAT_CURVE_ANGLE_TOLERANCE_RAD = radians(0.01)
+TIP_SHORT_EDGE_MAX_RATIO = 0.1
+TIP_SHORT_CHAIN_MAX_RATIO = 0.15
+TIP_AREA_CHANGE_MAX_RATIO = 0.01
+TIP_PARALLEL_CROSS_RATIO = 0.0001
 
 
 @dataclass(frozen=True, slots=True)
@@ -329,6 +337,377 @@ def _without_large_circle_covered_centers(
     )
 
 
+def _native_endpoints(
+    entity: DXFEntity,
+) -> tuple[tuple[float, float], tuple[float, float]]:
+    points = flatten_entity(entity)
+    return points[0], points[-1]
+
+
+def _shared_endpoint_indices(
+    first: DXFEntity,
+    second: DXFEntity,
+) -> tuple[tuple[int, int], ...]:
+    first_points = _native_endpoints(first)
+    second_points = _native_endpoints(second)
+    return tuple(
+        (first_index, second_index)
+        for first_index, first_point in enumerate(first_points)
+        for second_index, second_point in enumerate(second_points)
+        if dist(first_point, second_point) <= TOPOLOGY_TOLERANCE_MM
+    )
+
+
+def _flat_circle_compatible(
+    entity: DXFEntity,
+    center: tuple[float, float],
+    radius: float,
+) -> bool:
+    if entity.dxftype() == "ARC":
+        arc = cast(Arc, entity)
+        return (
+            dist(center, (float(arc.dxf.center.x), float(arc.dxf.center.y)))
+            <= TOPOLOGY_TOLERANCE_MM
+            and abs(float(arc.dxf.radius) - radius) <= TOPOLOGY_TOLERANCE_MM
+        )
+    if entity.dxftype() != "LINE":
+        return False
+    first, second = _native_endpoints(entity)
+    if any(
+        abs(hypot(point[0] - center[0], point[1] - center[1]) - radius)
+        > 0.001
+        for point in (first, second)
+    ):
+        return False
+    chord = dist(first, second)
+    if chord <= 1e-9 or chord >= 2.0 * radius:
+        return False
+    sagitta = radius - sqrt(max(0.0, radius * radius - chord * chord / 4.0))
+    return sagitta <= FLAT_CURVE_MAX_SAGITTA_MM
+
+
+def _merge_flat_curve_connector(
+    first: DXFEntity,
+    second: DXFEntity,
+) -> Line | None:
+    if first.dxftype() != "LINE" or second.dxftype() != "LINE":
+        return None
+    first_points = _native_endpoints(first)
+    second_points = _native_endpoints(second)
+    matches = tuple(
+        (first_index, second_index)
+        for first_index, first_point in enumerate(first_points)
+        for second_index, second_point in enumerate(second_points)
+        if dist(first_point, second_point) <= 0.001
+    )
+    if len(matches) != 1:
+        return None
+    first_index, second_index = matches[0]
+    shared = first_points[first_index]
+    first_outer = first_points[1 - first_index]
+    second_outer = second_points[1 - second_index]
+    first_vector = (shared[0] - first_outer[0], shared[1] - first_outer[1])
+    second_vector = (second_outer[0] - shared[0], second_outer[1] - shared[1])
+    if first_vector[0] * second_vector[0] + first_vector[1] * second_vector[1] <= 0.0:
+        return None
+    chord = (second_outer[0] - first_outer[0], second_outer[1] - first_outer[1])
+    chord_length = hypot(*chord)
+    if chord_length <= 1e-9:
+        return None
+    deviation = abs(
+        (shared[0] - first_outer[0]) * chord[1]
+        - (shared[1] - first_outer[1]) * chord[0]
+    ) / chord_length
+    if deviation > TOPOLOGY_TOLERANCE_MM:
+        return None
+    merged = cast(Line, first.copy())
+    merged.dxf.start = first_outer
+    merged.dxf.end = second_outer
+    return merged
+
+
+def _oriented_chain(
+    entities: tuple[DXFEntity, ...],
+    indices: tuple[int, ...],
+    adjacency: dict[int, set[int]],
+) -> tuple[tuple[int, tuple[float, float], tuple[float, float]], ...] | None:
+    endpoints = tuple(index for index in indices if len(adjacency[index]) == 1)
+    if len(endpoints) != 2 or any(len(adjacency[index]) not in {1, 2} for index in indices):
+        return None
+    order: list[int] = []
+    previous: int | None = None
+    current = endpoints[0]
+    while True:
+        order.append(current)
+        following = tuple(adjacency[current] - ({previous} if previous is not None else set()))
+        if not following:
+            break
+        if len(following) != 1:
+            return None
+        previous, current = current, following[0]
+    if len(order) != len(indices):
+        return None
+    oriented: list[tuple[int, tuple[float, float], tuple[float, float]]] = []
+    for position, index in enumerate(order):
+        points = _native_endpoints(entities[index])
+        previous_index = order[position - 1] if position else None
+        next_index = order[position + 1] if position + 1 < len(order) else None
+        if previous_index is None:
+            matches = _shared_endpoint_indices(entities[index], entities[next_index])
+            if len(matches) != 1:
+                return None
+            end_index = matches[0][0]
+            start_index = 1 - end_index
+        elif next_index is None:
+            matches = _shared_endpoint_indices(entities[index], entities[previous_index])
+            if len(matches) != 1:
+                return None
+            start_index = matches[0][0]
+            end_index = 1 - start_index
+        else:
+            previous_matches = _shared_endpoint_indices(
+                entities[index], entities[previous_index]
+            )
+            next_matches = _shared_endpoint_indices(entities[index], entities[next_index])
+            if (
+                len(previous_matches) != 1
+                or len(next_matches) != 1
+                or previous_matches[0][0] == next_matches[0][0]
+            ):
+                return None
+            start_index = previous_matches[0][0]
+            end_index = next_matches[0][0]
+        oriented.append((index, points[start_index], points[end_index]))
+    return tuple(oriented)
+
+
+def _point_angle(point: tuple[float, float], center: tuple[float, float]) -> float:
+    return atan2(point[1] - center[1], point[0] - center[0])
+
+
+def _signed_curve_sweep(
+    entity: DXFEntity,
+    start: tuple[float, float],
+    end: tuple[float, float],
+    center: tuple[float, float],
+) -> float | None:
+    if entity.dxftype() == "LINE":
+        delta = (_point_angle(end, center) - _point_angle(start, center) + tau / 2.0) % tau
+        delta -= tau / 2.0
+        return None if abs(delta) <= 1e-9 or abs(abs(delta) - tau / 2.0) <= 1e-9 else delta
+    arc = cast(Arc, entity)
+    native_start, native_end = _native_endpoints(arc)
+    span = radians((float(arc.dxf.end_angle) - float(arc.dxf.start_angle)) % 360.0)
+    if span <= 1e-9:
+        return None
+    if (
+        dist(start, native_start) <= TOPOLOGY_TOLERANCE_MM
+        and dist(end, native_end) <= TOPOLOGY_TOLERANCE_MM
+    ):
+        return span
+    if (
+        dist(start, native_end) <= TOPOLOGY_TOLERANCE_MM
+        and dist(end, native_start) <= TOPOLOGY_TOLERANCE_MM
+    ):
+        return -span
+    return None
+
+
+def _merged_flat_arc(
+    entities: tuple[DXFEntity, ...],
+    oriented: tuple[tuple[int, tuple[float, float], tuple[float, float]], ...],
+    seed_index: int,
+) -> Arc | None:
+    seed = cast(Arc, entities[seed_index])
+    center = (float(seed.dxf.center.x), float(seed.dxf.center.y))
+    radius = float(seed.dxf.radius)
+    first_point = oriented[0][1]
+    last_point = oriented[-1][2]
+    endpoint_errors = tuple(
+        abs(hypot(point[0] - center[0], point[1] - center[1]) - radius)
+        for point in (first_point, last_point)
+    )
+    if any(error > 0.001 for error in endpoint_errors):
+        return None
+    sweeps = tuple(
+        _signed_curve_sweep(entities[index], start, end, center)
+        for index, start, end in oriented
+    )
+    if any(sweep is None for sweep in sweeps):
+        return None
+    resolved = cast(tuple[float, ...], sweeps)
+    if any(sweep * resolved[0] <= 0.0 for sweep in resolved[1:]):
+        return None
+    total = sum(resolved)
+    if not FLAT_CURVE_ANGLE_TOLERANCE_RAD < abs(total) < tau - FLAT_CURVE_ANGLE_TOLERANCE_RAD:
+        return None
+    first_angle = _point_angle(first_point, center)
+    last_angle = _point_angle(last_point, center)
+    endpoint_span = (
+        (last_angle - first_angle) % tau
+        if total > 0.0
+        else (first_angle - last_angle) % tau
+    )
+    if abs(abs(total) - endpoint_span) > FLAT_CURVE_ANGLE_TOLERANCE_RAD:
+        return None
+    merged = cast(Arc, seed.copy())
+    if total > 0.0:
+        merged.dxf.start_angle = degrees(first_angle) % 360.0
+        merged.dxf.end_angle = degrees(last_angle) % 360.0
+    else:
+        merged.dxf.start_angle = degrees(last_angle) % 360.0
+        merged.dxf.end_angle = degrees(first_angle) % 360.0
+    return merged
+
+
+def _recover_flat_curve_chains(
+    entities: tuple[DXFEntity, ...],
+) -> tuple[DXFEntity, ...]:
+    consumed: set[int] = set()
+    replacements: dict[int, DXFEntity] = {}
+    for seed_index, seed in enumerate(entities):
+        if seed_index in consumed or seed.dxftype() != "ARC":
+            continue
+        arc = cast(Arc, seed)
+        center = (float(arc.dxf.center.x), float(arc.dxf.center.y))
+        radius = float(arc.dxf.radius)
+        compatible = {
+            index
+            for index, entity in enumerate(entities)
+            if index not in consumed
+            and _flat_circle_compatible(entity, center, radius)
+        }
+        selected = {seed_index}
+        while True:
+            additions = {
+                index
+                for index in compatible - selected
+                if any(
+                    _shared_endpoint_indices(entities[index], entities[member])
+                    for member in selected
+                )
+            }
+            if not additions:
+                break
+            selected.update(additions)
+        if len(selected) < 2 or not any(
+            entities[index].dxftype() == "LINE" for index in selected
+        ):
+            continue
+        adjacency = {
+            index: {
+                other
+                for other in selected
+                if other != index
+                and _shared_endpoint_indices(entities[index], entities[other])
+            }
+            for index in selected
+        }
+        indices = tuple(sorted(selected))
+        oriented = _oriented_chain(entities, indices, adjacency)
+        if oriented is None:
+            continue
+        connector_merges: list[tuple[int, int, Line]] = []
+        trimmed = set(selected)
+        for chain_index, external_point in (
+            (oriented[0][0], oriented[0][1]),
+            (oriented[-1][0], oriented[-1][2]),
+        ):
+            if entities[chain_index].dxftype() != "LINE":
+                continue
+            outside = tuple(
+                index
+                for index, entity in enumerate(entities)
+                if index not in selected
+                and index not in consumed
+                and entity.dxftype() == "LINE"
+                and any(
+                    dist(external_point, point) <= 0.001
+                    for point in _native_endpoints(entity)
+                )
+            )
+            if len(outside) != 1 or any(outside[0] in pair[:2] for pair in connector_merges):
+                continue
+            connector = _merge_flat_curve_connector(
+                entities[chain_index], entities[outside[0]]
+            )
+            if connector is None:
+                continue
+            trimmed.remove(chain_index)
+            connector_merges.append((chain_index, outside[0], connector))
+        if not any(entities[index].dxftype() == "ARC" for index in trimmed):
+            continue
+        if len(trimmed) == 1:
+            merged = entities[next(iter(trimmed))]
+            if merged.dxftype() != "ARC":
+                continue
+            arc_indices: set[int] = set()
+        else:
+            trimmed_adjacency = {
+                index: adjacency[index] & trimmed for index in trimmed
+            }
+            trimmed_oriented = _oriented_chain(
+                entities,
+                tuple(sorted(trimmed)),
+                trimmed_adjacency,
+            )
+            if trimmed_oriented is None:
+                continue
+            trimmed_seed = next(
+                index for index in trimmed if entities[index].dxftype() == "ARC"
+            )
+            merged = _merged_flat_arc(entities, trimmed_oriented, trimmed_seed)
+            if merged is None:
+                continue
+            arc_indices = trimmed
+        for chain_index, outside_index, connector in connector_merges:
+            connector_indices = {chain_index, outside_index}
+            replacements[min(connector_indices)] = connector
+            consumed.update(connector_indices)
+        if not arc_indices:
+            continue
+        if merged is None:
+            continue
+        replacement_index = min(arc_indices)
+        replacements[replacement_index] = merged
+        consumed.update(arc_indices)
+    if not replacements:
+        return entities
+    result = tuple(
+        replacements.get(index, entity)
+        for index, entity in enumerate(entities)
+        if index not in consumed or index in replacements
+    )
+    original_bounds = bbox.extents(entities, fast=False)
+    result_bounds = bbox.extents(result, fast=False)
+    if not original_bounds.has_data or not result_bounds.has_data:
+        return entities
+    if any(
+        abs(first - second) > TOPOLOGY_TOLERANCE_MM
+        for first, second in zip(
+            (
+                original_bounds.extmin.x,
+                original_bounds.extmin.y,
+                original_bounds.extmax.x,
+                original_bounds.extmax.y,
+            ),
+            (
+                result_bounds.extmin.x,
+                result_bounds.extmin.y,
+                result_bounds.extmax.x,
+                result_bounds.extmax.y,
+            ),
+            strict=True,
+        )
+    ):
+        return entities
+    try:
+        validate_closed_outline(result)
+    except PLSplitError:
+        return entities
+    return result
+
+
 def validate_closed_outline(
     entities: tuple[DXFEntity, ...],
     *,
@@ -343,10 +722,284 @@ def validate_closed_outline(
     return polygon
 
 
+def _without_collinear_boundary_vertices(
+    polygon: Polygon,
+) -> tuple[tuple[float, float], ...]:
+    vertices = [
+        (float(x), float(y))
+        for x, y in polygon.exterior.coords[:-1]
+    ]
+    changed = True
+    while changed and len(vertices) > 3:
+        changed = False
+        for index, current in enumerate(vertices):
+            previous = vertices[index - 1]
+            following = vertices[(index + 1) % len(vertices)]
+            span = dist(previous, following)
+            if span <= 1e-12:
+                continue
+            deviation = (
+                abs(
+                    (following[0] - previous[0]) * (previous[1] - current[1])
+                    - (following[1] - previous[1]) * (previous[0] - current[0])
+                )
+                / span
+            )
+            projection = (
+                (current[0] - previous[0]) * (following[0] - previous[0])
+                + (current[1] - previous[1]) * (following[1] - previous[1])
+            ) / (span * span)
+            if (
+                deviation <= BOUNDARY_TOLERANCE_MM
+                and -1e-12 <= projection <= 1.0 + 1e-12
+            ):
+                vertices.pop(index)
+                changed = True
+                break
+    return tuple(vertices)
+
+
+def _support_line_intersection(
+    first_start: tuple[float, float],
+    first_end: tuple[float, float],
+    second_start: tuple[float, float],
+    second_end: tuple[float, float],
+) -> tuple[float, float] | None:
+    first = (
+        first_end[0] - first_start[0],
+        first_end[1] - first_start[1],
+    )
+    second = (
+        second_end[0] - second_start[0],
+        second_end[1] - second_start[1],
+    )
+    denominator = first[0] * second[1] - first[1] * second[0]
+    scale = dist(first_start, first_end) * dist(second_start, second_end)
+    if scale <= 1e-12 or abs(denominator) <= scale * 1e-9:
+        return None
+    offset = (
+        second_start[0] - first_start[0],
+        second_start[1] - first_start[1],
+    )
+    factor = (offset[0] * second[1] - offset[1] * second[0]) / denominator
+    return (
+        first_start[0] + factor * first[0],
+        first_start[1] + factor * first[1],
+    )
+
+
+def _point_to_support_line(
+    point: tuple[float, float],
+    start: tuple[float, float],
+    end: tuple[float, float],
+) -> float:
+    length = dist(start, end)
+    if length <= 1e-12:
+        return float("inf")
+    return (
+        abs(
+            (end[0] - start[0]) * (start[1] - point[1])
+            - (end[1] - start[1]) * (start[0] - point[0])
+        )
+        / length
+    )
+
+
+def _parallel_same_direction(
+    first_start: tuple[float, float],
+    first_end: tuple[float, float],
+    second_start: tuple[float, float],
+    second_end: tuple[float, float],
+) -> bool:
+    first = (
+        first_end[0] - first_start[0],
+        first_end[1] - first_start[1],
+    )
+    second = (
+        second_end[0] - second_start[0],
+        second_end[1] - second_start[1],
+    )
+    scale = hypot(*first) * hypot(*second)
+    return (
+        scale > 1e-12
+        and abs(first[0] * second[1] - first[1] * second[0])
+        <= scale * TIP_PARALLEL_CROSS_RATIO
+        and first[0] * second[0] + first[1] * second[1] > 0.0
+    )
+
+
+def _append_unique_side(
+    sides: list[
+        tuple[tuple[float, float], tuple[float, float]]
+    ],
+    side: tuple[tuple[float, float], tuple[float, float]],
+) -> None:
+    if any(
+        dist(side[0], existing[0]) <= 0.001
+        and dist(side[1], existing[1]) <= 0.001
+        for existing in sides
+    ):
+        return
+    sides.append(side)
+
+
+def _complete_flat_tip_transition(
+    entities: tuple[DXFEntity, ...],
+    source_segments: tuple[_Segment, ...],
+) -> tuple[DXFEntity, ...]:
+    if any(entity.dxftype() != "LINE" for entity in entities):
+        return entities
+    source_polygon = validate_closed_outline(entities)
+    vertices = _without_collinear_boundary_vertices(source_polygon)
+    source_points = tuple(
+        point
+        for segment in source_segments
+        if segment.entity.dxftype() == "LINE"
+        for point in (segment.points[0], segment.points[-1])
+    )
+    if not source_points:
+        return entities
+    source_bounds = (
+        min(point[0] for point in source_points),
+        min(point[1] for point in source_points),
+        max(point[0] for point in source_points),
+        max(point[1] for point in source_points),
+    )
+    candidates: dict[
+        str,
+        tuple[Polygon, tuple[tuple[float, float], ...]],
+    ] = {}
+    for index in range(len(vertices)):
+        rotated = (*vertices[index:], *vertices[:index])
+        if len(rotated) < 6:
+            continue
+        first, second, third, fourth, fifth = rotated[:5]
+        lengths = (
+            dist(first, second),
+            dist(second, third),
+            dist(third, fourth),
+            dist(fourth, fifth),
+        )
+        long_limit = min(lengths[0], lengths[3])
+        short_total = lengths[1] + lengths[2]
+        if (
+            long_limit <= 1e-12
+            or max(lengths[1], lengths[2])
+            > long_limit * TIP_SHORT_EDGE_MAX_RATIO
+            or short_total > long_limit * TIP_SHORT_CHAIN_MAX_RATIO
+        ):
+            continue
+        previous = rotated[-1]
+        following = rotated[5]
+        first_sides = [(first, second)]
+        second_sides = [(fourth, fifth)]
+        for segment in source_segments:
+            if segment.entity.dxftype() != "LINE":
+                continue
+            start = segment.points[0]
+            end = segment.points[-1]
+            for outer, tip in ((start, end), (end, start)):
+                if (
+                    dist(outer, tip) >= lengths[0] * 0.8
+                    and _parallel_same_direction(first, second, outer, tip)
+                    and _point_to_support_line(outer, previous, first)
+                    <= TOPOLOGY_TOLERANCE_MM
+                    and dist(outer, first)
+                    <= short_total + TOPOLOGY_TOLERANCE_MM
+                    and dist(tip, second)
+                    <= short_total + TOPOLOGY_TOLERANCE_MM
+                ):
+                    _append_unique_side(first_sides, (outer, tip))
+                if (
+                    dist(outer, tip) >= lengths[3] * 0.8
+                    and _parallel_same_direction(fourth, fifth, tip, outer)
+                    and _point_to_support_line(outer, fifth, following)
+                    <= TOPOLOGY_TOLERANCE_MM
+                    and dist(outer, fifth)
+                    <= short_total + TOPOLOGY_TOLERANCE_MM
+                    and dist(tip, fourth)
+                    <= short_total + TOPOLOGY_TOLERANCE_MM
+                ):
+                    _append_unique_side(second_sides, (tip, outer))
+        for first_side in first_sides:
+            for second_side in second_sides:
+                intersection = _support_line_intersection(
+                    *first_side,
+                    *second_side,
+                )
+                if intersection is None:
+                    continue
+                if (
+                    dist(intersection, first_side[1])
+                    > short_total + TOPOLOGY_TOLERANCE_MM
+                    or dist(intersection, second_side[0])
+                    > short_total + TOPOLOGY_TOLERANCE_MM
+                ):
+                    continue
+                completed_vertices = (
+                    first_side[0],
+                    intersection,
+                    second_side[1],
+                    *rotated[5:],
+                )
+                completed_polygon = Polygon(completed_vertices)
+                if not completed_polygon.is_valid or completed_polygon.area <= 1e-6:
+                    continue
+                if completed_polygon.area + 1e-6 < source_polygon.area:
+                    continue
+                completed_bounds = completed_polygon.bounds
+                if (
+                    completed_bounds[0]
+                    < source_bounds[0] - TOPOLOGY_TOLERANCE_MM
+                    or completed_bounds[1]
+                    < source_bounds[1] - TOPOLOGY_TOLERANCE_MM
+                    or completed_bounds[2]
+                    > source_bounds[2] + TOPOLOGY_TOLERANCE_MM
+                    or completed_bounds[3]
+                    > source_bounds[3] + TOPOLOGY_TOLERANCE_MM
+                ):
+                    continue
+                changed_area = source_polygon.symmetric_difference(
+                    completed_polygon
+                ).area
+                if changed_area > source_polygon.area * TIP_AREA_CHANGE_MAX_RATIO:
+                    continue
+                candidates[completed_polygon.normalize().wkb_hex] = (
+                    completed_polygon,
+                    completed_vertices,
+                )
+    if not candidates:
+        return entities
+    ranked = sorted(candidates.values(), key=lambda value: value[0].area, reverse=True)
+    completed_polygon, completed_vertices = ranked[0]
+    if any(
+        abs(candidate.area - completed_polygon.area) <= 0.01
+        and candidate.symmetric_difference(completed_polygon).area > 0.01
+        for candidate, _ in ranked[1:]
+    ):
+        return entities
+    template = cast(Line, entities[0])
+    completed_entities: list[DXFEntity] = []
+    for start, end in zip(
+        completed_vertices,
+        (*completed_vertices[1:], completed_vertices[0]),
+        strict=True,
+    ):
+        line = cast(Line, template.copy())
+        line.dxf.start = start
+        line.dxf.end = end
+        completed_entities.append(line)
+    result = tuple(completed_entities)
+    proved = validate_closed_outline(result)
+    if proved.symmetric_difference(completed_polygon).area > 0.01:
+        return entities
+    return result
+
+
 def analyze_geometry(
     context: PLSourceContext,
     metadata: PLMetadata,
-) -> tuple[PlateOutline, SectionProof]:
+) -> tuple[PlateOutline, SectionProof | None]:
     native = expand_native_segments(context.entities)
     components = _proved_components(native)
     main_candidates: list[_Component] = []
@@ -357,7 +1010,8 @@ def analyze_geometry(
         if (
             component.polygon.is_valid
             and not len(component.polygon.interiors)
-            and abs(y_span - metadata.width_mm) <= NOMINAL_WIDTH_TOLERANCE_MM
+            and abs(y_span - metadata.width_mm)
+            <= NOMINAL_WIDTH_TOLERANCE_MM + NUMERIC_EPSILON_MM
             and x_span > TOPOLOGY_TOLERANCE_MM
         ):
             main_candidates.append(component)
@@ -366,6 +1020,24 @@ def analyze_geometry(
             "MAIN_VIEW_MISSING",
             "没有找到板宽匹配且长度轴沿 X 方向的唯一主视图。",
         )
+    if len(main_candidates) > 1:
+        bom_differences = tuple(
+            abs(
+                float(component.polygon.bounds[2] - component.polygon.bounds[0])
+                - metadata.bom_length_mm
+            )
+            for component in main_candidates
+        )
+        smallest_difference = min(bom_differences)
+        preferred = [
+            component
+            for component, difference in zip(
+                main_candidates, bom_differences, strict=True
+            )
+            if difference - smallest_difference <= TOPOLOGY_TOLERANCE_MM
+        ]
+        if len(preferred) == 1:
+            main_candidates = preferred
     if len(main_candidates) != 1:
         raise PLSplitError(
             "MAIN_VIEW_AMBIGUOUS",
@@ -409,7 +1081,10 @@ def analyze_geometry(
     proved_outer = validate_closed_outline(
         outer_entities, tolerance_mm=TOPOLOGY_TOLERANCE_MM
     )
-    if proved_outer.symmetric_difference(main.polygon).area > 0.01:
+    if (
+        proved_outer.symmetric_difference(main.polygon).area
+        > MAIN_BOUNDARY_AREA_TOLERANCE_MM2
+    ):
         raise PLSplitError(
             "MAIN_BOUNDARY_MISMATCH", "原生外边界与主视图材料区域不一致。"
         )
@@ -423,10 +1098,13 @@ def analyze_geometry(
     projection = max_x - min_x
     width = max_y - min_y
 
+    independent = tuple(
+        component
+        for component in components
+        if component is not main and component not in contained
+    )
     section_candidates: list[_Component] = []
-    for component in components:
-        if component is main or component in contained:
-            continue
+    for component in independent:
         x_span = float(component.polygon.bounds[2] - component.polygon.bounds[0])
         if (
             component.polygon.is_valid
@@ -435,9 +1113,35 @@ def analyze_geometry(
         ):
             section_candidates.append(component)
     if not section_candidates:
-        raise PLSplitError(
-            "SECTION_MISSING", "没有找到与主视图投影对应的闭合恒厚剖面。"
+        if independent:
+            raise PLSplitError(
+                "SECTION_MISSING", "独立闭合视图不能证明普通平板或恒厚剖面。"
+            )
+        outer_entities = _recover_flat_curve_chains(outer_entities)
+        outer_entities = _complete_flat_tip_transition(
+            outer_entities,
+            main.segments,
         )
+        flat_polygon = validate_closed_outline(outer_entities)
+        flat_bounds = bbox.extents(outer_entities, fast=False)
+        if not flat_bounds.has_data:
+            raise PLSplitError("MAIN_BOUNDARY_MISSING", "普通平板外边界没有有效范围。")
+        min_x = float(flat_bounds.extmin.x)
+        min_y = float(flat_bounds.extmin.y)
+        max_x = float(flat_bounds.extmax.x)
+        max_y = float(flat_bounds.extmax.y)
+        return PlateOutline(
+            outer_entities=outer_entities,
+            polygon=flat_polygon,
+            projection_length_mm=max_x - min_x,
+            width_mm=max_y - min_y,
+            anchor_x_mm=min_x,
+            source_handles=tuple(
+                _entity_handle(segment.entity) for segment in main.segments
+            ),
+            candidate_count=len(main_candidates),
+            cutout_entity_groups=tuple(cutout_groups),
+        ), None
     if len(section_candidates) != 1:
         normalized = tuple(
             translate(

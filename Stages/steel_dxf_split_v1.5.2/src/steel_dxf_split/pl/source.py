@@ -159,22 +159,51 @@ def _text_position(entity: DXFEntity) -> tuple[float, float, float]:
 
 
 def _unique_part_number(context: PLSourceContext) -> str:
-    values = [
-        canonical_part_number(value)
+    part_mark_texts = [
+        value
         for entity in context.entities
         if entity.dxf.layer.casefold() == "partmark"
         if (value := _text_value(entity))
+    ]
+    values = [
+        canonical_part_number(value)
+        for value in part_mark_texts
         if _PART_NUMBER.fullmatch(value)
     ]
     unique: dict[str, str] = {}
     for value in values:
         unique.setdefault(value.casefold(), value)
-    if len(unique) != 1:
-        raise PLSplitError(
-            "PART_NUMBER_AMBIGUOUS",
-            f"单件必须有唯一零件号，当前识别到：{sorted(unique.values())}",
-        )
-    return next(iter(unique.values()))
+    if len(unique) == 1:
+        return next(iter(unique.values()))
+    if not part_mark_texts:
+        rows = _spec_rows(context)
+        if len(rows) == 1:
+            specification = rows[0][0]
+            spec_x, spec_y, spec_height = _text_position(specification)
+            row_tolerance = max(0.1, spec_height * 0.25)
+            for entity in context.entities:
+                if entity.dxf.layer.casefold() != "otherobjecttype":
+                    continue
+                value = _text_value(entity)
+                if not value or _PART_NUMBER.fullmatch(value) is None:
+                    continue
+                candidate = canonical_part_number(value)
+                if (
+                    "-" not in candidate
+                    or not candidate[-1].isalnum()
+                    or not any(character.isalpha() for character in candidate)
+                ):
+                    continue
+                x, y, _ = _text_position(entity)
+                if x >= spec_x or abs(y - spec_y) > row_tolerance:
+                    continue
+                unique.setdefault(candidate.casefold(), candidate)
+            if len(unique) == 1:
+                return next(iter(unique.values()))
+    raise PLSplitError(
+        "PART_NUMBER_AMBIGUOUS",
+        f"单件必须有唯一零件号，当前识别到：{sorted(unique.values())}",
+    )
 
 
 def _spec_rows(context: PLSourceContext) -> list[tuple[DXFEntity, float, float]]:

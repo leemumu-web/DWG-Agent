@@ -20,7 +20,7 @@ from .contracts import (
     PLSourceContext,
     PLSplitError,
 )
-from .development import calculate_target, transform_outline
+from .development import K_FACTOR, calculate_target, transform_outline
 from .geometry import analyze_geometry
 from .longitudinal import (
     analyze_longitudinal_outline,
@@ -47,12 +47,16 @@ def compile_context(
 ) -> PLCompilation:
     metadata = extract_metadata(context)
     outline, section = analyze_geometry(context, metadata)
+    flat_plate = section is None
+    k_length_mm = (
+        outline.projection_length_mm if flat_plate else section.k_length_mm
+    )
     target = calculate_target(
         projection_length_mm=outline.projection_length_mm,
-        k_length_mm=section.k_length_mm,
+        k_length_mm=k_length_mm,
         bom_length_mm=metadata.bom_length_mm,
     )
-    if outline.cutout_entity_groups:
+    if flat_plate or outline.cutout_entity_groups:
         longitudinal = analyze_uniform_longitudinal_outline(
             outline.outer_entities,
             outline.polygon,
@@ -79,9 +83,10 @@ def compile_context(
             outline.outer_entities,
             longitudinal=longitudinal,
             projection_length_mm=outline.projection_length_mm,
-            k_length_mm=section.k_length_mm,
+            k_length_mm=k_length_mm,
             bom_length_mm=metadata.bom_length_mm,
             anchor_x_mm=outline.anchor_x_mm,
+            k_factor=None if flat_plate else K_FACTOR,
         )
     except PLSplitError:
         if (
@@ -100,9 +105,10 @@ def compile_context(
             outline.outer_entities,
             longitudinal=longitudinal,
             projection_length_mm=outline.projection_length_mm,
-            k_length_mm=section.k_length_mm,
+            k_length_mm=k_length_mm,
             bom_length_mm=metadata.bom_length_mm,
             anchor_x_mm=outline.anchor_x_mm,
+            k_factor=None if flat_plate else K_FACTOR,
         )
     transformed_cutouts: list[tuple[DXFEntity, ...]] = []
     if outline.cutout_entity_groups:
@@ -159,6 +165,7 @@ def _success_payload(item: PLItemResult) -> dict[str, object]:
     developed = compilation.developed
     metrics = developed.metrics
     write = compilation.write_result
+    section = developed.section
     return {
         "status": "success",
         "source": str(item.source_path),
@@ -170,18 +177,21 @@ def _success_payload(item: PLItemResult) -> dict[str, object]:
             "bom_length_mm": developed.metadata.bom_length_mm,
         },
         "evidence": {
+            "plate_mode": "flat" if section is None else "bent",
             "main_candidate_count": developed.outline.candidate_count,
-            "section_candidate_count": developed.section.candidate_count,
+            "section_candidate_count": 0 if section is None else section.candidate_count,
             "main_source_handles": list(developed.outline.source_handles),
-            "section_source_handles": list(developed.section.source_handles),
+            "section_source_handles": [] if section is None else list(section.source_handles),
         },
         "lengths": {
             "projection_mm": metrics.projection_length_mm,
-            "section_area_mm2": developed.section.polygon.area,
-            "section_thickness_mm": developed.metadata.thickness_mm,
+            "section_area_mm2": None if section is None else section.polygon.area,
+            "section_thickness_mm": (
+                None if section is None else developed.metadata.thickness_mm
+            ),
             "k_factor": metrics.k_factor,
-            "k_proof_method": developed.section.proof_method,
-            "k_length_mm": metrics.k_length_mm,
+            "k_proof_method": None if section is None else section.proof_method,
+            "k_length_mm": None if section is None else metrics.k_length_mm,
             "bom_mm": metrics.bom_length_mm,
             "raw_mm": metrics.raw_length_mm,
             "target_mm": metrics.target_length_mm,

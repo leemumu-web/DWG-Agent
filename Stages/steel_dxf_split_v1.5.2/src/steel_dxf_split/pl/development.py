@@ -837,6 +837,7 @@ def transform_outline(
     k_length_mm: float,
     bom_length_mm: float,
     anchor_x_mm: float,
+    k_factor: float | None = K_FACTOR,
 ) -> tuple[tuple[DXFEntity, ...], DevelopmentMetrics]:
     source = tuple(entities)
     if not source:
@@ -979,7 +980,7 @@ def transform_outline(
     )
     return transformed, DevelopmentMetrics(
         projection_length_mm=target.projection_length_mm,
-        k_factor=K_FACTOR,
+        k_factor=k_factor,
         k_length_mm=target.k_length_mm,
         bom_length_mm=target.bom_length_mm,
         raw_length_mm=target.raw_length_mm,

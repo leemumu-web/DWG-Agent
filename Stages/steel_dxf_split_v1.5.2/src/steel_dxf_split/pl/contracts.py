@@ -27,7 +27,7 @@ class DevelopmentTarget:
 @dataclass(frozen=True, slots=True)
 class DevelopmentMetrics:
     projection_length_mm: float
-    k_factor: float
+    k_factor: float | None
     k_length_mm: float
     bom_length_mm: float
     raw_length_mm: float
@@ -124,7 +124,7 @@ class SectionProof:
 class DevelopedPlate:
     metadata: PLMetadata
     outline: PlateOutline
-    section: SectionProof
+    section: SectionProof | None
     longitudinal: LongitudinalProof
     transformed_entities: tuple[DXFEntity, ...]
     metrics: DevelopmentMetrics

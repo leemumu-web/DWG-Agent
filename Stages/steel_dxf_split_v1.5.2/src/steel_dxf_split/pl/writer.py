@@ -22,12 +22,12 @@ from steel_dxf_split.part_mark_layout import (
 )
 
 from .contracts import DevelopedPlate, PLSplitError, PLWriteResult
-from .geometry import flatten_entity, validate_closed_outline
+from .geometry import TOPOLOGY_TOLERANCE_MM, flatten_entity, validate_closed_outline
 
 _WINDOWS_CJK_DXF_FONT = "simsun.ttc"
 _DIMENSION_TOLERANCE_MM = 0.001
 PL_LABEL_HEIGHT_MM = 30.0
-PL_LABEL_HEIGHT_OPTIONS_MM = (30.0, 25.0, 20.0, 15.0, 10.0)
+PL_LABEL_HEIGHT_OPTIONS_MM = (30.0, 25.0, 20.0, 15.0, 10.0, 8.0, 6.0, 5.0, 4.0, 3.0)
 
 
 def _ensure_layers(document: ezdxf.document.Drawing) -> None:
@@ -95,7 +95,7 @@ def _boundary_topology(
                         start_point[0] + parameter * delta_x,
                         start_point[1] + parameter * delta_y,
                     )
-                    if dist(projected, point) <= _DIMENSION_TOLERANCE_MM:
+                    if dist(projected, point) <= TOPOLOGY_TOLERANCE_MM:
                         split_points.append((parameter, point))
         unique_split_points: list[tuple[float, tuple[float, float]]] = []
         for parameter, point in sorted(split_points):
@@ -730,10 +730,21 @@ def write_pl_dxf(
                     break
             if label_point is not None:
                 break
+        if label_point is None and cutout_polygons:
+            for height in PL_LABEL_HEIGHT_OPTIONS_MM[1:]:
+                for candidate in candidates:
+                    if developed_polygon.covers(
+                        part_mark_envelope(label, candidate, height)
+                    ):
+                        label_point = candidate
+                        label_height = height
+                        break
+                if label_point is not None:
+                    break
     if label_point is None or label_height is None:
         raise PLSplitError(
             "PL_LABEL_DOES_NOT_FIT",
-            "10 mm零件标记仍无法完整放入板材区域。",
+            "3 mm零件标记仍无法完整放入板材区域。",
         )
     modelspace.add_text(
         label,
