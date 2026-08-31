@@ -17,6 +17,7 @@
 | `storage/` | 对象回收与数据库/对象存储事务探针。 |
 | `windows/` | Linux 侧访问 Windows 节点的通信脚本。 |
 | `release.sh`、`release/` | 构建不含业务 Python 源码的镜像，生成加密离线发布包、服务器 Compose 与独立部署器。 |
+| `generate_combined_two_column_sheet.py` | 按零件号递增生成三批原图与最新拆板结果的两列 DXF 总合图及配对清单。 |
 
 ## 常用闭环
 

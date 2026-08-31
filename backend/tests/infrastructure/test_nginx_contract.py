@@ -50,8 +50,13 @@ def test_nginx_sse_route_has_streaming_contract(config_path: Path):
 def test_nginx_forwards_request_identity_and_client_context(config_path: Path):
     content = config_path.read_text(encoding="utf-8")
 
+    # 生产配置用 $http_host 保留端口（非 80 端口 307 不丢端口），本地配置用
+    # $host 即可。契约是原样转发客户端 Host 头，两者都应被接受。
+    assert any(
+        f"proxy_set_header Host {header};" in content
+        for header in ("$host", "$http_host")
+    )
     for header in (
-        "Host $host",
         "X-Real-IP $remote_addr",
         "X-Forwarded-For $proxy_add_x_forwarded_for",
         "X-Forwarded-Proto $scheme",
