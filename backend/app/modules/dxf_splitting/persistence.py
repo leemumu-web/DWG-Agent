@@ -172,7 +172,10 @@ PL_XBOX_SOURCE_CONTRACTS = {"PL": PL_SOURCE_CONTRACT_ID, "XBOX": XBOX_SOURCE_CON
 PL_XBOX_VALIDATION_SCHEMA = "DWG-AGENT-PL-XBOX-SPLIT-VALIDATION-1.0"
 PL_XBOX_MANIFEST_SCHEMA = "DWG-AGENT-PL-XBOX-SPLIT-MANIFEST-1.0"
 PL_XBOX_LEDGER_SCHEMA = "DWG-AGENT-PL-XBOX-SPLIT-LEDGER-1.0"
-PL_XBOX_COMBINED_CLI_SCHEMA = f"pl:{PL_REPORT_SCHEMA};xbox:{XBOX_REPORT_SCHEMA}"
+# Combined CLI schema identifier for a merged PL+XBOX run. Must fit
+# dxf_split_runs.cli_schema (varchar(64)); the pl:/xbox: prefixes are redundant
+# because the report schema IDs themselves carry the family names.
+PL_XBOX_COMBINED_CLI_SCHEMA = f"{PL_REPORT_SCHEMA};{XBOX_REPORT_SCHEMA}"
 
 
 def get_or_create_pl_xbox_split_run(

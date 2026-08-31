@@ -26,6 +26,7 @@ from app.modules.dxf_classification.models import (
 )
 from app.modules.dxf_splitting import pl_adapter, pl_execution
 from app.modules.dxf_splitting.models import DxfSplitRun
+from app.modules.dxf_splitting.persistence import PL_XBOX_COMBINED_CLI_SCHEMA
 from app.modules.dxf_splitting.pl_validation import validate_pl_result
 from app.modules.dxf_splitting.validation import StagedSplitSource
 from app.modules.files.interface import clear_storage_backend_cache, save_bytes_as_file
@@ -683,3 +684,20 @@ def test_pl_http_contract_exports_normal_results_and_failed_sources_only(
     )
     assert stale.status_code == 404
     assert stale.json()["error"]["code"] == "PL_SPLIT_RUN_NOT_CURRENT"
+
+
+def test_pl_xbox_combined_cli_schema_fits_run_column() -> None:
+    """The combined PL+XBOX CLI schema must fit dxf_split_runs.cli_schema.
+
+    Regression: the pl:/xbox:-prefixed form was 66 chars, overflowing the
+    varchar(64) column and failing every merged run with
+    DataError (1406 "Data too long for column 'cli_schema'").
+    """
+    assert len(PL_XBOX_COMBINED_CLI_SCHEMA) <= 64
+    assert PL_XBOX_COMBINED_CLI_SCHEMA == (
+        "steel-dxf-split-pl-report/2;steel-dxf-split-xbox-report/1"
+    )
+    # The report schema IDs that feed the combined value stay stable and the
+    # family names are still carried inside them.
+    assert "steel-dxf-split-pl-report/2" in PL_XBOX_COMBINED_CLI_SCHEMA
+    assert "steel-dxf-split-xbox-report/1" in PL_XBOX_COMBINED_CLI_SCHEMA
