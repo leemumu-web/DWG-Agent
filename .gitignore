@@ -110,3 +110,9 @@ third_parts/kkFileView/server/LibreOfficePortable/
 # BH/BOX 拆板前 DXF 交付件（352 张 BH + 大量 BOX Tekla 单件图，数百 MB）
 /BH_拆板前_dxf汇总/
 /BOX_拆板前_dxf汇总/
+
+# --- Claude Code worktree/session artifacts ---
+/.claude/worktrees/
+
+# --- 新一批数据：本地工作数据包（zip/结果/dwg 工作目录）---
+/新一批数据/

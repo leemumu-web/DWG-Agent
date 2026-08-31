@@ -8,7 +8,7 @@ import pytest
 
 from tests.support.paths import REPO_ROOT
 
-MERGE_SCRIPT_DIR = REPO_ROOT.parent / "太子"
+MERGE_SCRIPT_DIR = REPO_ROOT / "scripts"
 sys.path.insert(0, str(MERGE_SCRIPT_DIR))
 
 import generate_combined_two_column_sheet as merge_sheet  # noqa: E402
