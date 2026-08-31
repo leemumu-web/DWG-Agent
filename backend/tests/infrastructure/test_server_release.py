@@ -254,6 +254,10 @@ def test_release_scripts_encrypt_full_payload_and_never_ship_runtime_secrets():
     assert 'python -m dxf2excel --help | grep -q "extract"' in release
     assert 'steel-dxf-classify --version | grep -q "steel-dxf-classifier"' in release
     assert "steel-dxf-split --help" in release
+    assert "steel-dxf-split-pl --help" in release
+    assert "steel-dxf-split-xbox --help" in release
+    assert "import steel_dxf_split_pl, steel_dxf_split_xbox" in release
+    assert "load_verified_xbox_release_attestation" in release
     assert "remnant-drawing-read --help" in release
     assert "material_routing" in release
     assert "remnant_drawing_reader" in release

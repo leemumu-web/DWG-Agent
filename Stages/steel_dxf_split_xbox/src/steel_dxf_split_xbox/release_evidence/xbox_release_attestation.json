@@ -1,6 +1,6 @@
 {
   "schema": "XBOX-RELEASE-ATTESTATION-1.0",
-  "created_at": "2026-08-30T15:48:56.655121+00:00",
+  "created_at": "2026-08-31T02:21:03.113631+00:00",
   "certification": {
     "passed": true,
     "pair_count": 20,
@@ -9,7 +9,7 @@
     "compiler_version": "0.1.0",
     "manifest_sha256": "c1556e12df3b5d17921e1e6605ff7fb944252fc8fe1f4939fd53886db964cacd",
     "gate_fingerprint": "055e397fece95321fe392bae175e611b4ee59b91d2f559890ccaa50a4e43c0d4",
-    "implementation_fingerprint": "0b3f271d1a93ad327f8aaa6a1f5d7390377a9af8d3cb9d51af49805b40f67678"
+    "implementation_fingerprint": "5ec6b7de8be4f269f9437d0e665565309bc912af246c7bc225dc586a99db1642"
   },
-  "payload_digest": "0f198920f80f57b9e3d74b33654e92e1856550592fb4ae3c31bb2dcb1445b471"
+  "payload_digest": "411e1f683f99f06416e3b218c495e2c4e38d1c141c69b2f2999b1cb054ba10a2"
 }

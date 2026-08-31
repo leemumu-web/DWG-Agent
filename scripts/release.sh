@@ -71,10 +71,12 @@ from bh_reader.simple_xlsx import write_results_xlsx as write_bh_left_right_xlsx
 from numpy._core import _multiarray_umath
 import remnant_drawing_reader
 import steel_dxf_classifier, steel_dxf_split
+import steel_dxf_split_pl, steel_dxf_split_xbox
 from app.modules.excel_processing.stage_adapter import get_excel_final_stage_root
 from dwg_converter.check_env import check_environment as check_dwg_environment
 from dxf_converter.check_env import check_environment as check_dxf_environment
 from steel_dxf_split.box.release import load_verified_box_release_attestation
+from steel_dxf_split_xbox.release import load_verified_xbox_release_attestation
 excel_root = get_excel_final_stage_root()
 sys.path.insert(0, str(excel_root))
 for module_name in (\"config\", \"handbook\", \"material_routing\", \"pipeline\", \"main\"):
@@ -82,6 +84,7 @@ for module_name in (\"config\", \"handbook\", \"material_routing\", \"pipeline\"
 assert check_dwg_environment().ok
 assert check_dxf_environment().ok
 load_verified_box_release_attestation()
+load_verified_xbox_release_attestation()
 cpu_baseline = set(_multiarray_umath.__cpu_baseline__)
 assert cpu_baseline <= {\"SSE\", \"SSE2\", \"SSE3\"}, (
     f\"NumPy wheel requires an unsupported CPU baseline: {sorted(cpu_baseline)}\"
@@ -91,6 +94,8 @@ assert cpu_baseline <= {\"SSE\", \"SSE2\", \"SSE3\"}, (
         python -m dxf2excel --help | grep -q "extract"
         steel-dxf-classify --version | grep -q "steel-dxf-classifier"
         steel-dxf-split --help >/dev/null
+        steel-dxf-split-pl --help >/dev/null
+        steel-dxf-split-xbox --help >/dev/null
         remnant-drawing-read --help >/dev/null
         /app/Stages/excel_stage3/.venv/bin/python -c "
 import excel_stage3
