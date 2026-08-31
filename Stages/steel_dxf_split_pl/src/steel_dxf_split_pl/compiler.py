@@ -158,6 +158,19 @@ def _rejected_item(
     )
 
 
+def _rejected_source_item(source_path: Path, error: PLSplitError) -> PLItemResult:
+    return PLItemResult(
+        status="rejected",
+        source_path=source_path,
+        context_id=source_path.stem,
+        part_number=None,
+        output_path=None,
+        compilation=None,
+        error_code=error.code,
+        error_message_zh=error.message_zh,
+    )
+
+
 def _success_payload(item: PLItemResult) -> dict[str, object]:
     compilation = item.compilation
     if compilation is None or item.output_path is None:
@@ -285,18 +298,21 @@ def split_pl(
             "OUTPUT_REPORT_EXISTS",
             f"报告已存在，未启用 --overwrite：{report_path}",
         )
-    contexts = tuple(
-        context
-        for input_file in input_files
-        for context in load_source_contexts(input_file)
-    )
+    entries: list[PLSourceContext | PLItemResult] = []
+    for input_file in input_files:
+        try:
+            entries.extend(load_source_contexts(input_file))
+        except PLSplitError as error:
+            entries.append(_rejected_source_item(input_file, error))
     metadata_by_context: dict[int, PLMetadata] = {}
     early_rejections: dict[int, PLItemResult] = {}
-    for index, context in enumerate(contexts):
+    for index, entry in enumerate(entries):
+        if isinstance(entry, PLItemResult):
+            continue
         try:
-            metadata_by_context[index] = extract_metadata(context)
+            metadata_by_context[index] = extract_metadata(entry)
         except PLSplitError as error:
-            early_rejections[index] = _rejected_item(context, error)
+            early_rejections[index] = _rejected_item(entry, error)
     counts = Counter(
         metadata.part_number.casefold() for metadata in metadata_by_context.values()
     )
@@ -304,10 +320,14 @@ def split_pl(
     items: list[PLItemResult] = []
     with TemporaryDirectory(prefix=".pl-split-", dir=output) as temporary:
         temporary_dir = Path(temporary)
-        for index, context in enumerate(contexts):
+        for index, entry in enumerate(entries):
+            if isinstance(entry, PLItemResult):
+                items.append(entry)
+                continue
             if index in early_rejections:
                 items.append(early_rejections[index])
                 continue
+            context = entry
             metadata = metadata_by_context[index]
             if metadata.part_number.casefold() in duplicate_keys:
                 items.append(

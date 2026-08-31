@@ -1431,6 +1431,37 @@ def test_rejected_sheet_does_not_prevent_valid_sheet_publication(tmp_path: Path)
     assert rejected.error_code == "MAIN_VIEW_AMBIGUOUS"
 
 
+def test_empty_dxf_is_reported_as_rejected_instead_of_aborting_batch(
+    tmp_path: Path,
+) -> None:
+    compiler = importlib.import_module("steel_dxf_split_pl.compiler")
+    input_directory = tmp_path / "input"
+    output = tmp_path / "output"
+    input_directory.mkdir()
+    source = input_directory / "empty-plate.dxf"
+    _new_source_document().saveas(source)
+
+    batch = compiler.split_pl(input_directory, output)
+    report = json.loads(batch.report_path.read_text(encoding="utf-8"))
+
+    assert batch.exit_code == 1
+    assert batch.success_count == 0
+    assert batch.rejected_count == 1
+    assert not list(output.glob("*.dxf"))
+    assert report["items"] == [
+        {
+            "status": "rejected",
+            "source": str(source.resolve()),
+            "context_id": "empty-plate",
+            "part_number": None,
+            "error": {
+                "code": "EMPTY_CONTEXT",
+                "message_zh": "DXF 模型空间没有可解释实体。",
+            },
+        }
+    ]
+
+
 def test_existing_part_output_is_preserved_without_overwrite(tmp_path: Path) -> None:
     compiler = importlib.import_module("steel_dxf_split_pl.compiler")
     source = tmp_path / "combined.dxf"

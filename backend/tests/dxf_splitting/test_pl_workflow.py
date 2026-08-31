@@ -557,6 +557,68 @@ def test_pl_job_persists_only_independently_accepted_normal_output(
     assert not any(artifact.artifact_type == "weld_allowance_dxf" for artifact in pl_artifacts)
 
 
+def test_pl_job_routes_an_entire_rejected_batch_to_manual_review(
+    db,
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    _configure_local_storage(monkeypatch, tmp_path)
+    _workflow_id, job = _prepare_pl_job(
+        db,
+        tmp_path,
+        parts=(("PL-1", "PL"), ("PL-2", "PL")),
+    )
+
+    def fake_splitter(input_directory: Path, output_directory: Path, **_kwargs):
+        items = [
+            {
+                "status": "rejected",
+                "source": str(source.resolve()),
+                "context_id": source.stem,
+                "part_number": source.stem.split("_", maxsplit=1)[0],
+                "error": {
+                    "code": "DXF_LOAD_FAILED",
+                    "message_zh": "测试逐图安全拒绝",
+                },
+            }
+            for source in sorted(input_directory.glob("*.dxf"))
+        ]
+        return pl_adapter.PlSplitterResult(
+            exit_code=1,
+            payload={
+                "schema": "steel-dxf-split-pl-report/2",
+                "input": str(input_directory),
+                "output_dir": str(output_directory),
+                "report": str(output_directory / "pl_split_report.json"),
+                "success_count": 0,
+                "rejected_count": len(items),
+                "exit_code": 1,
+                "items": items,
+            },
+        )
+
+    monkeypatch.setattr(pl_execution, "invoke_pl_splitter", fake_splitter)
+
+    pl_execution.run_pl_dxf_splitting(
+        job.id,
+        worker_name="test-pl",
+        expected_attempt=1,
+    )
+
+    db.expire_all()
+    completed_job = db.get(Job, job.id)
+    run = db.scalar(select(DxfSplitRun).where(DxfSplitRun.job_id == job.id))
+    assert completed_job is not None and completed_job.status == "succeeded"
+    assert run is not None and run.status == "completed_with_review"
+    assert run.processed_count == 2
+    assert run.auto_accepted_count == 0
+    assert run.manual_review_count == 2
+    assert len(run.items) == 2
+    assert {item.automation_route for item in run.items} == {"manual_review"}
+    assert {item.disposition for item in run.items} == {"stage_rejected"}
+    assert all(item.normal_dxf_file_id is None for item in run.items)
+
+
 def test_pl_http_contract_exports_normal_results_and_failed_sources_only(
     db,
     monkeypatch,
