@@ -11,16 +11,17 @@
 | `files` | implemented | 4 | 17 | 0 | 上传、登记、下载、预览、对象补偿 |
 | `remnant_inventory` | partial | 6 | 32 | 2 | 材质目录、导入账本、异步解析与全厂共享余料状态 |
 | `jobs` | implemented | 5 | 0 | 1 | Job attempt、持久投递意图、步骤、结果、复核、SSE；HTTP 当前由 `/workflows` 聚合前缀拥有 |
-| `workflows` | partial | 7 | 85 | 1 | 生产批次、输入冻结、阶段、完整备份、异步整批清理和项目/Job 聚合路由 |
+| `workflows` | partial | 7 | 94 | 1 | 生产批次、输入冻结、阶段、完整备份、异步整批清理和项目/Job 聚合路由 |
 | `cad_processing` | partial | 0 | 0 | 5 | DWG/DXF 格式转换、DXF 预览解释与材料表提取 |
 | `dxf_classification` | partial | 2 | 0 | 1 | Steel DXF Classifier 1.2.0 分类分流、目录浏览与 DXF-only 下载 |
-| `dxf_splitting` | partial | 3 | 0 | 1 | Steel DXF Split 1.5.2 整批拆板、独立校验、MinIO 产物和人工复核来源清单 |
-| `excel_processing` | partial | 3 | 14 | 2 | Excel Final、BH 左右进深化与关系化导入 |
+| `dxf_splitting` | partial | 3 | 0 | 2 | Steel DXF Split 1.5.2 的 BH/BOX 拆板，以及独立 PL Stage 的拆板、校验和产物账本 |
+| `excel_processing` | partial | 3 | 14 | 3 | Excel Final、BH 左右进深化与关系化导入 |
+| `plate_classification` | partial | 2 | 3 | 1 | 板材分类账本、查询接口与异步分类任务 |
 | `operations` | partial | 5 | 38 | 3 | 审计、数据控制台、控制平面、归档、扫描 |
 | `automation` | placeholder | 3 | 4 | 0 | Agent 账本与只读/禁用契约 |
 | `messaging_target` | placeholder | 0 | 0 | 0 | RabbitMQ、Beat 的目标边界 |
 | `windows_execution` | external | 0 | 0 | 0 | Node Agent、CAM Runner、SinoCAM Adapter |
-| **合计** |  | **48** | **211** | **16** | 所有运行契约唯一归属 |
+| **合计** |  | **50** | **223** | **19** | 所有运行契约唯一归属 |
 
 “HTTP operation 为 0”不表示模块不可用。例如 CAD 转换与分类由 Job/Workflow 公共端点触发，模块拥有任务和 Stage，而 HTTP 入口由 `jobs` 或 `workflows` 拥有。归属只设一个主 owner，避免同一契约由多个目录同时负责。
 
@@ -31,17 +32,17 @@
 - `placeholder`：保留 schema、API、配置或错误契约，核心执行明确留白。
 - `external`：仓库定义交接边界，执行进程或商业系统在仓库外。
 
-当前 16 个任务名包含 `app.workers.tasks_dxf_classification.classify_steel_dxf`、`app.workers.tasks_dxf_split.split_steel_dxf`、`app.workers.tasks_excel_stage2.process_excel_stage2`、`app.workers.tasks_maintenance.purge_workflow_retention` 以及余料转换、解析两个任务。运行时快照以脚本从 Celery registry 读取的集合为准。
+当前 19 个任务名包含 `app.workers.tasks_dxf_classification.classify_steel_dxf`、`app.workers.tasks_dxf_split.split_steel_dxf`、`app.workers.tasks_pl_dxf_split.split_pl_dxf`、`app.workers.tasks_plate_classification.classify_plates`、三个 Excel 处理任务、维护任务以及余料转换和解析任务。运行时快照以脚本从 Celery registry 读取的集合为准。
 
-16 个稳定任务名由 task registry 与 Celery 显式 include 装配：CAD 的 5 个任务集中在
-`cad_processing.tasks`，分类、拆板各一个，Excel 处理两个，report stub 归 `jobs.tasks`；余料转换/解析、归档、对账与
+19 个稳定任务名由 task registry 与 Celery 显式 include 装配：CAD 的 5 个任务集中在
+`cad_processing.tasks`，DXF 分类、BH/BOX 拆板、PL 拆板和板材分类各一个，Excel 处理三个，report stub 归 `jobs.tasks`；余料转换/解析、归档、对账与
 stale recovery 分别归 daily archive、storage reconciliation 和 control plane，Workflow 整批清理由
 `workflows.retention_tasks` 复用 maintenance queue。历史
-`app.workers.tasks_*` 名称与队列不变；14 条 `pattern -> queue` 映射也进入
+`app.workers.tasks_*` 名称与队列不变；16 条 `pattern -> queue` 映射也进入
 `runtime-contract.json`。空 Agent/CAD/dispatch task module 已删除，但对应路由仍保留，路由不
 等于任务注册或核心实现。
 
-`workflows` 的 7 张表和 85 个 operation 现集中在 `app/modules/workflows/` 聚合前缀。模型/Schema、模板、
+`workflows` 的 7 张表和 94 个 operation 现集中在 `app/modules/workflows/` 聚合前缀。模型/Schema、模板、
 状态机、Job 同步、阶段执行计划、输入登记/转换/冻结/展示以及七类 route 均可从目录直接
 追溯；人工输入仍严格为多个 DWG + 一个 Excel，DXF 只允许服务器派生。第三阶段通过
 `dxf_splitting` 的公共接口执行整批拆板，但任务、两张拆板表和 Stage 仍由拆板模块拥有；
@@ -93,4 +94,4 @@ cd backend && .venv/bin/pytest -q tests/architecture
 cd ../frontend && npm run check:architecture
 ```
 
-检查器验证路径存在、数组确定性排序、48 张 ORM 表唯一归属、211 个 HTTP operation 唯一归属、16 个 Celery 任务唯一归属、14 条任务路由稳定，以及目标能力的显式状态。
+检查器验证路径存在、数组确定性排序、50 张 ORM 表唯一归属、223 个 HTTP operation 唯一归属、19 个 Celery 任务唯一归属、16 条任务路由稳定，以及目标能力的显式状态。

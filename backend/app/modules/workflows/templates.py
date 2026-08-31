@@ -86,6 +86,27 @@ WORKFLOW_TEMPLATES: dict[str, WorkflowTemplateRead] = {
                 ),
             ),
             _stage(
+                "pl_xbox_split",
+                "PL / XBOX 拆板与独立校验",
+                "处理分类确认的 PL 板材（原长单产物）与 XBOX 箱型构件（原长+焊接余量成对产物）。",
+                execution_mode="automated",
+                execution_kind="pl_xbox_split",
+                required_inputs=("classified_dxf",),
+                artifact_types=(
+                    "processed_dxf",
+                    "weld_allowance_dxf",
+                    "split_report",
+                    "validation_report",
+                    "split_ledger",
+                    "split_manifest",
+                ),
+                required_outputs=(
+                    "validation_report",
+                    "split_ledger",
+                    "split_manifest",
+                ),
+            ),
+            _stage(
                 "drawing_processing",
                 "图纸拆板与独立校验",
                 "按冻结分类结果整批执行 BH/BOX 拆板；未通过图纸保留原因和原图，不进入正式结果。",

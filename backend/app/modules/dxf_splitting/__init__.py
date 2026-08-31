@@ -1,1 +1,1 @@
-"""BH/BOX DXF split execution, ledgers and workflow projections."""
+"""Independent PL and legacy BH/BOX split execution ledgers and projections."""

@@ -1,4 +1,4 @@
-# Steel DXF Split：已分类 BH/BOX 双产物拆板程序
+# Steel DXF Split：BH/BOX 双产物与隔离 PL 核心
 
 本程序是融合后的主程序。它接收上一步冻结的 BH/BOX 分类清单，直接调用对应领域核心，并把同一次拆板结果发布为一对完整 DXF：普通版与余量伸长版。程序内部不再根据 DXF 文字重复判断构件类型。
 
@@ -16,7 +16,7 @@
 
 ## 运行合同
 
-- 公开命令只有 `steel-dxf-split`。
+- BH/BOX 统一入口为 `steel-dxf-split`。PL 命令由单独的 `Stages/steel_dxf_split_pl` 启动包提供，原 BH/BOX 包的入口清单保持不变。
 - 命令只扫描输入目录第一层的 `.dxf` 文件，并在处理开始前冻结文件列表。
 - 输入目录与输出目录不得相同或互相嵌套。
 - `output` 永远不作为任何阶段的输入。
@@ -119,6 +119,33 @@ uv run steel-dxf-split `
 - `2`：输入参数错误或至少一个输入发生无法形成审计任务的处理异常。
 
 命令标准输出为一个 JSON 数组，每项包含类型、两份 DXF、报告、任务目录、最终路由及处理耗时。
+
+## 独立 PL 折弯板拆板
+
+`steel-dxf-split-pl` 由独立启动包转发到隔离的 `steel_dxf_split.pl` 模块，不改变 `steel-dxf-split`，也不进入 BH/BOX 的分类、双产物、焊接余量或发布认证路径。它接受单张 PL DXF、由多个顶层图框 `INSERT` 组成的合并 DXF，或只扫描第一层 DXF 的目录；每个成功零件只产生一张 `<零件号>.dxf` 和批次报告 `pl_split_report.json`。
+
+```powershell
+steel-dxf-split-pl `
+  ".\combined.dxf" `
+  --output-dir ".\pl-output"
+
+steel-dxf-split-pl `
+  ".\single-or-batch-input" `
+  --output-dir ".\pl-output" `
+  --overwrite
+```
+
+PL 规则固定如下：
+
+- K 因子为 `0.5`，恒厚剖面中面长度按 `剖面材料面积 / 板厚` 证明；
+- 目标长度取主视图投影长度、K=0.5 展开长度和材料表长度三者最大值，再向上取到 `0.1 mm`；
+- 不额外增加切割、焊接或安全余量；
+- 以主视图左端为锚点，只沿 X 方向统一等比拉伸，Y 坐标和板宽不变；
+- 非等轴拉伸后的圆弧由 ezdxf 精确输出为 `ELLIPSE`；
+- 制造外轮廓在 `PLATE_CUT`，唯一标签在 `PART_LABEL`，文本为 `p=<零件号>`；
+- 输出为 R2007、毫米、1:1 DXF，默认不覆盖已有结果。
+
+PL 退出码为：全部成功 `0`；至少一个可审计零件被拒绝、其余结果仍发布 `1`；输入合同或整张 DXF 无法读取 `2`。当前后端工作流仍只路由 BH/BOX，PL 命令暂不写数据库、不生成 BH/BOX 双产物，也不执行原图/结果合图。
 
 ## 领域核心与证据边界
 

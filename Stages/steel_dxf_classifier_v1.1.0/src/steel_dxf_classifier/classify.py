@@ -69,6 +69,8 @@ def classify_facts(
         profile_raw=winner.value.raw,
         profile_normalized=winner.profile.normalized,
         type_source=winner.profile.type_source,
+        profile_source_dialect=winner.profile.profile_source_dialect,
+        profile_extra=winner.profile.profile_extra,
         group_key=f"type:{winner.profile.part_type}",
         next_stage_eligible=True,
     )

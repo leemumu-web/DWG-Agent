@@ -29,8 +29,17 @@
 - `test_bh_manufacturing_ir.py` 锁定 BH 制造 IR 的角色标签契约；
 - `test_bh_nested_physical_flange_supervision.py` 锁定嵌套物理翼缘与手工标准几何比对；
 - `test_bh_weld_allowance_feature_binding.py` 锁定焊接余量特征绑定与切面契约。
+- `test_bh_dialect_hidden_linetype.py` 锁定 BH 方言隐藏线型解释。
+- `test_bh_flange_span_threshold.py` 锁定 BH 翼缘跨度阈值。
+- `test_bh_insufficient_view.py` 锁定 BH 视图证据不足时的安全拒绝。
+- `test_bh_view_axis_ambiguity.py` 锁定 BH 视图轴歧义边界。
 - `test_bh_development_rounding.py` 锁定来源/几何证明的 BH 派生翼缘长度向上取整到整数毫米。
 - `test_bh_slanted_flange_boundary.py` 锁定等高双翼缘展开保留真实斜切端边界，并保持正交投影矩形化。
+- `test_pl_splitter.py` 锁定独立 PL 输入解释、K=0.5 展开、0.1 mm 向上取整、等比拉伸、清洁 DXF 输出、批次报告和 BH/BOX 运行时隔离。
+- `test_pl_carrier_unfolding.py` 锁定 PL 载体区间展开。
+- `test_pl_paired_corpus.py`、`test_pl_real_corpus.py` 锁定人工结果对照与真实样本回归。
+- `test_pl_workflow.py` 锁定 PL 独立 Stage、保存后验证、当前 attempt、单产物导出和工作流接入。
+- `test_xbox_workflow.py` 锁定 XBOX 独立 Stage（成对产物）、保存后余量档位验证、PL/XBOX 三读取器互斥、合并 attempt 持久化和工作流接入。
 
 依赖外部 DXF 样本的图纸回归测试,样本缺失时自动跳过;样本根目录可用环境变量指向
 Linux 本地路径(见 `backend/tests/support/sample_roots.py`)。测试不能调用真实

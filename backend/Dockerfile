@@ -52,6 +52,8 @@ COPY Stages/dxf2dwg ./Stages/dxf2dwg
 COPY Stages/dxf2excel ./Stages/dxf2excel
 COPY Stages/steel_dxf_classifier_v1.1.0 ./Stages/steel_dxf_classifier_v1.1.0
 COPY Stages/steel_dxf_split_v1.5.2 ./Stages/steel_dxf_split_v1.5.2
+COPY Stages/steel_dxf_split_pl ./Stages/steel_dxf_split_pl
+COPY Stages/steel_dxf_split_xbox ./Stages/steel_dxf_split_xbox
 COPY Stages/bh_left_right_reader ./Stages/bh_left_right_reader
 COPY Stages/BOX左右进读取 ./Stages/BOX左右进读取
 COPY Stages/remnant_drawing_reader ./Stages/remnant_drawing_reader
@@ -175,6 +177,9 @@ RUN python -m compileall \
     PYTHONPATH=/app/Stages/steel_dxf_split_v1.5.2/src \
         python -c "from steel_dxf_split.box.release import write_protected_runtime_manifest; write_protected_runtime_manifest()" && \
     chmod 0444 /app/Stages/steel_dxf_split_v1.5.2/src/steel_dxf_split/release_evidence/box_protected_runtime_manifest.json && \
+    PYTHONPATH=/app/Stages/steel_dxf_split_xbox/src \
+        python -c "from steel_dxf_split_xbox.release import write_xbox_protected_runtime_manifest; write_xbox_protected_runtime_manifest()" && \
+    chmod 0444 /app/Stages/steel_dxf_split_xbox/src/steel_dxf_split_xbox/release_evidence/xbox_protected_runtime_manifest.json && \
     find /app/app /app/migrations /app/Stages \
         -type f -name '*.py' -delete && \
     find /app/Stages \

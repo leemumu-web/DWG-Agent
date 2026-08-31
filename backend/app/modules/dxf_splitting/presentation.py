@@ -9,7 +9,11 @@ from sqlalchemy.orm import Session
 
 from app.modules.dxf_classification.models import DxfClassificationItem, DxfClassificationRun
 from app.modules.dxf_splitting.models import DxfSplitRun
-from app.modules.dxf_splitting.schemas import DxfSplitItemRead, DxfSplitRunRead
+from app.modules.dxf_splitting.schemas import (
+    DxfSplitItemRead,
+    DxfSplitRunRead,
+    PlSplitRunRead,
+)
 from app.modules.files.interface import FileRead, StoredFile
 from app.modules.jobs.interface import Job, JobRead
 from app.platform.http.exceptions import AppHTTPException, not_found
@@ -166,3 +170,49 @@ def build_dxf_split_run_read(
         created_at=run.created_at,
         updated_at=run.updated_at,
     )
+
+
+def build_pl_split_run_read(
+    db: Session,
+    run: DxfSplitRun,
+    *,
+    now: datetime | None = None,
+) -> PlSplitRunRead:
+    base = build_dxf_split_run_read(db, run, now=now)
+    classification = db.get(DxfClassificationRun, run.classification_run_id)
+    if classification is None:
+        raise AppHTTPException(
+            409,
+            "PL_SPLIT_LEDGER_INCOMPLETE",
+            "PL 拆板批次引用的分类运行不可用。",
+            {"classification_run_id": run.classification_run_id},
+        )
+    kept = or_(
+        DxfClassificationItem.disposition != "classified",
+        func.coalesce(
+            DxfClassificationItem.part_type.notin_(("PL", "XBOX")), True
+        ),
+        DxfClassificationItem.next_stage_eligible.is_(False),
+    )
+    label = func.coalesce(
+        func.nullif(DxfClassificationItem.part_type, ""),
+        DxfClassificationItem.disposition,
+        "unclassified",
+    )
+    classification_only_type_counts = {
+        name: int(count)
+        for name, count in db.execute(
+            select(label, func.count(DxfClassificationItem.id))
+            .where(
+                and_(
+                    DxfClassificationItem.run_id == classification.id,
+                    kept,
+                )
+            )
+            .group_by(label)
+        ).all()
+    }
+    payload = base.model_dump()
+    payload["split_ledger_file"] = payload.pop("bh_split_ledger_file")
+    payload["classification_only_type_counts"] = classification_only_type_counts
+    return PlSplitRunRead.model_validate(payload)

@@ -76,3 +76,52 @@ def test_safe_unknown_multi_letter_prefix_is_auto_discovered() -> None:
     assert parsed.part_type == "XY"
     assert parsed.normalized == "XY250*120*8"
     assert parsed.type_source == "auto_discovered"
+
+
+@pytest.mark.parametrize(
+    ("raw", "normalized", "dialect", "extra"),
+    [
+        ("BOX300*500*50*30*50", "XBOX300*500*50*30*50", "BOX5", 50.0),
+        ("HK300-10-15*200-25", "XBOX300*200*10*15*25", "HK", 25.0),
+        (" hk 500 - 20 - 25 * 500 - 30 ", "XBOX500*500*20*25*30", "HK", 30.0),
+    ],
+)
+def test_xbox_business_dialects_normalize_to_xbox(
+    raw: str,
+    normalized: str,
+    dialect: str,
+    extra: float,
+) -> None:
+    parsed = parse_profile(raw)
+
+    assert parsed is not None
+    assert parsed.part_type == "XBOX"
+    assert parsed.normalized == normalized
+    assert parsed.profile_source_dialect == dialect
+    assert parsed.profile_extra == extra
+    assert parsed.type_source == "catalog"
+
+
+def test_four_dimension_box_remains_box() -> None:
+    parsed = parse_profile("BOX300*500*50*30")
+
+    assert parsed is not None
+    assert parsed.part_type == "BOX"
+    assert parsed.normalized == "BOX300*500*50*30"
+    assert parsed.profile_source_dialect is None
+    assert parsed.profile_extra is None
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "BOX50*500*50*30*50",
+        "BOX300*80*50*30*50",
+        "BOX300*500*50*30*0",
+        "HK30-10-15*200-25",
+        "HK300-100-15*200-25",
+        "HK300-10-15*200-0",
+    ],
+)
+def test_invalid_xbox_business_profile_is_rejected(raw: str) -> None:
+    assert parse_profile(raw) is None

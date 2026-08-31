@@ -24,6 +24,7 @@ from app.platform.config.constants import (
     PIPELINE_EXCEL_FINAL,
     PIPELINE_EXCEL_STAGE2,
     PIPELINE_EXCEL_STAGE3,
+    PIPELINE_PL_DXF_SPLIT,
     PIPELINE_REMNANT_CONVERT,
     PIPELINE_REMNANT_PARSE,
     PIPELINE_STEEL_DXF_CLASSIFIER,
@@ -35,6 +36,7 @@ from app.platform.config.constants import (
     TASK_EXCEL_FINAL,
     TASK_EXCEL_STAGE2,
     TASK_EXCEL_STAGE3,
+    TASK_PL_DXF_SPLIT,
     TASK_REMNANT_CONVERT,
     TASK_REMNANT_PARSE,
     TASK_STEEL_DXF_CLASSIFICATION,
@@ -60,6 +62,7 @@ TASK_PIPELINES = {
     TASK_REMNANT_PARSE: PIPELINE_REMNANT_PARSE,
     TASK_STEEL_DXF_CLASSIFICATION: PIPELINE_STEEL_DXF_CLASSIFIER,
     TASK_STEEL_DXF_SPLIT: PIPELINE_STEEL_DXF_SPLIT,
+    TASK_PL_DXF_SPLIT: PIPELINE_PL_DXF_SPLIT,
 }
 
 
@@ -150,6 +153,15 @@ def enqueue_dxf_split_job(
     return enqueue_dxf_splitting_job(job_id, attempt, task_id=task_id)
 
 
+def enqueue_pl_dxf_split_job(
+    job_id: int, attempt: int, *, task_id: str | None = None
+) -> str:
+    """投递冻结分类 PL DXF 的独立拆板任务。"""
+    from app.modules.dxf_splitting.interface import enqueue_pl_dxf_splitting_job
+
+    return enqueue_pl_dxf_splitting_job(job_id, attempt, task_id=task_id)
+
+
 def enqueue_job(
     job_id: int,
     pipeline: str,
@@ -178,6 +190,8 @@ def enqueue_job(
         return enqueue_dxf_classification_job(job_id, attempt, **kwargs)
     if pipeline == PIPELINE_STEEL_DXF_SPLIT:
         return enqueue_dxf_split_job(job_id, attempt, **kwargs)
+    if pipeline == PIPELINE_PL_DXF_SPLIT:
+        return enqueue_pl_dxf_split_job(job_id, attempt, **kwargs)
     return enqueue_stub_job(job_id, attempt, **kwargs)
 
 
@@ -204,6 +218,7 @@ def publish_dispatch(lease: DispatchLease) -> str:
         PIPELINE_EXCEL_STAGE3,
         PIPELINE_REMNANT_CONVERT,
         PIPELINE_REMNANT_PARSE,
+        PIPELINE_PL_DXF_SPLIT,
         PIPELINE_STEEL_DXF_CLASSIFIER,
         PIPELINE_STEEL_DXF_SPLIT,
         PIPELINE_STUB,

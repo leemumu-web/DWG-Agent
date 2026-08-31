@@ -10,7 +10,9 @@ from sqlalchemy.orm import Session
 from app.modules.dxf_classification.interface import (
     ClassificationError,
     latest_classification_run,
+    list_pl_split_candidate_inputs,
     list_split_candidate_inputs,
+    list_xbox_split_candidate_inputs,
     load_bh_stage2_classification_batch,
     load_box_stage2_classification_batch,
 )
@@ -38,6 +40,7 @@ from app.platform.config.constants import (
     TASK_EXCEL_FINAL,
     TASK_EXCEL_STAGE2,
     TASK_EXCEL_STAGE3,
+    TASK_PL_DXF_SPLIT,
     TASK_STEEL_DXF_CLASSIFICATION,
     TASK_STEEL_DXF_SPLIT,
 )
@@ -248,7 +251,7 @@ def dispatch_stage_execution(
             code = exc.detail.get("code") if isinstance(exc.detail, dict) else None
             job = db.get(Job, current.job.id, populate_existing=True)
             if (
-                current.job.task_type != TASK_STEEL_DXF_SPLIT
+                current.job.task_type not in {TASK_PL_DXF_SPLIT, TASK_STEEL_DXF_SPLIT}
                 or code != "JOB_ENQUEUE_FAILED"
                 or job is None
                 or job.status != "failed"
@@ -259,7 +262,11 @@ def dispatch_stage_execution(
             bind_stage_job(
                 db,
                 workflow,
-                stage_code="drawing_processing",
+                stage_code=(
+                    "pl_xbox_split"
+                    if current.job.task_type == TASK_PL_DXF_SPLIT
+                    else "drawing_processing"
+                ),
                 job=job,
             )
             db.commit()
@@ -310,6 +317,9 @@ def prepare_stage_execution(
     elif payload.execution_kind == "drawing_processing":
         require_stage_inputs(workflow, stage_code)
         task_type, params = _prepare_dxf_splitting(db, workflow, current_user)
+    elif payload.execution_kind == "pl_xbox_split":
+        require_stage_inputs(workflow, stage_code)
+        task_type, params = _prepare_pl_dxf_splitting(db, workflow, current_user)
     elif payload.execution_kind == "excel_stage3":
         task_type, params = _prepare_excel_stage3(db, workflow, current_user)
         require_stage_inputs(workflow, stage_code)
@@ -325,6 +335,10 @@ def prepare_stage_execution(
         "drawing_processing": (
             "DXF_SPLIT_JOB_BINDING_INVALID",
             "当前拆板阶段绑定的 Job 与工作流冻结输入不一致。",
+        ),
+        "pl_xbox_split": (
+            "PL_DXF_SPLIT_JOB_BINDING_INVALID",
+            "当前 PL 拆板阶段绑定的 Job 与工作流冻结输入不一致。",
         ),
         "excel_stage2": (
             "EXCEL_STAGE2_JOB_BINDING_INVALID",
@@ -365,7 +379,10 @@ def prepare_stage_execution(
         )
     retried = reused and job.status in {"failed", "cancelled"}
     if retried:
-        if stage_code == "drawing_processing" and job.attempt >= MAX_AUTOMATIC_ATTEMPTS:
+        if (
+            stage_code in {"drawing_processing", "pl_xbox_split"}
+            and job.attempt >= MAX_AUTOMATIC_ATTEMPTS
+        ):
             raise AppHTTPException(
                 409,
                 "DXF_SPLIT_ATTEMPTS_EXHAUSTED",
@@ -1015,6 +1032,86 @@ def _prepare_dxf_splitting(
     # are server-generated workflow artifacts and may have been created by a
     # different project member, so uploader identity is not the read boundary.
     return TASK_STEEL_DXF_SPLIT, {
+        "workflow_id": workflow.id,
+        "classification_run_id": classification.id,
+        "input_manifest_sha256": classification.input_manifest_sha256,
+    }
+
+
+def _prepare_pl_dxf_splitting(
+    db: Session,
+    workflow: WorkflowRun,
+    current_user: User,
+) -> tuple[str, dict[str, object]]:
+    del current_user
+    if not settings.dxf_split_pipeline_enabled:
+        raise service_unavailable(
+            "PL_DXF_SPLIT_PIPELINE_DISABLED",
+            "PL 拆板服务当前未启用；部署和人工验证完成后再打开开关。",
+        )
+    classification = latest_classification_run(db, workflow.id)
+    if classification is None:
+        raise AppHTTPException(
+            409,
+            "DXF_CLASSIFICATION_RUN_REQUIRED",
+            "PL 拆板前必须存在已完成的 DXF 分类运行。",
+        )
+    classification_stage = next(
+        (stage for stage in workflow.stages if stage.stage_code == "dxf_classification"),
+        None,
+    )
+    if (
+        classification_stage is None
+        or classification_stage.job_id != classification.job_id
+        or classification_stage.job_attempt != classification.job_attempt
+    ):
+        raise AppHTTPException(
+            409,
+            "DXF_CLASSIFICATION_RUN_STALE",
+            "最新分类运行不是当前工作流登记的正式分类尝试。",
+        )
+    classification_job = db.get(Job, classification.job_id)
+    if (
+        classification.project_id != workflow.project_id
+        or classification_job is None
+        or classification_job.project_id != workflow.project_id
+        or classification_job.task_type != TASK_STEEL_DXF_CLASSIFICATION
+        or classification_job.status != "succeeded"
+        or classification_job.attempt != classification.job_attempt
+    ):
+        raise AppHTTPException(
+            409,
+            "DXF_CLASSIFICATION_PROJECT_MISMATCH",
+            "当前分类运行没有绑定本项目已成功的正式 Job attempt。",
+            {"classification_run_id": classification.id},
+        )
+    if classification.status not in {"completed", "completed_with_review"}:
+        raise AppHTTPException(
+            409,
+            "DXF_CLASSIFICATION_NOT_READY",
+            "分类阶段尚未形成可追溯的 DXF 输出。",
+        )
+    inputs = list_pl_split_candidate_inputs(db, workflow.id)
+    xbox_inputs = list_xbox_split_candidate_inputs(db, workflow.id)
+    if not inputs and not xbox_inputs:
+        raise AppHTTPException(
+            409,
+            "PL_XBOX_SPLIT_INPUT_REQUIRED",
+            "分类运行没有可供 PL/XBOX Stage 拆板的 DXF。",
+        )
+    for item in [*inputs, *xbox_inputs]:
+        stored = db.get(StoredFile, item.output_file_id)
+        if stored is None or stored.status == "deleted" or stored.file_ext.casefold() != ".dxf":
+            raise AppHTTPException(
+                409,
+                "PL_DXF_SPLIT_SOURCE_MISSING",
+                "分类后的 PL/XBOX 拆板输入已不可用。",
+                {
+                    "classification_item_id": item.classification_item_id,
+                    "file_id": item.output_file_id,
+                },
+            )
+    return TASK_PL_DXF_SPLIT, {
         "workflow_id": workflow.id,
         "classification_run_id": classification.id,
         "input_manifest_sha256": classification.input_manifest_sha256,

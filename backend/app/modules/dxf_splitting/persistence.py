@@ -28,11 +28,22 @@ from app.modules.dxf_splitting.models import (
     DxfSplitReviewDecision,
     DxfSplitRun,
 )
+from app.modules.dxf_splitting.pl_adapter import (
+    PL_REPORT_SCHEMA,
+    PL_SOURCE_CONTRACT_ID,
+    PL_SPLITTER_VERSION,
+    PlSplitError,
+)
 from app.modules.dxf_splitting.schemas import (
     DxfSplitExcelHandoff,
     DxfSplitHandoffDrawing,
 )
 from app.modules.dxf_splitting.validation import ValidatedSplitItem
+from app.modules.dxf_splitting.xbox_adapter import (
+    XBOX_REPORT_SCHEMA,
+    XBOX_SOURCE_CONTRACT_ID,
+    XBOX_SPLITTER_VERSION,
+)
 from app.modules.files.interface import (
     StoredFile,
     complete_transfer_in_transaction,
@@ -51,6 +62,7 @@ from app.platform.config.constants import (
     JOB_RUNNING,
     JOB_VALIDATING,
     JOB_WAITING_CAD_WORKER,
+    TASK_PL_DXF_SPLIT,
     TASK_STEEL_DXF_SPLIT,
 )
 from app.platform.config.settings import settings
@@ -110,6 +122,105 @@ def get_or_create_split_run(
     return run
 
 
+def get_or_create_pl_split_run(
+    db: Session,
+    *,
+    job: Job,
+    workflow: WorkflowRun,
+    classification_run_id: int,
+    attempt: int,
+    manifest_sha256: str,
+    input_count: int,
+) -> DxfSplitRun:
+    run = db.scalar(
+        select(DxfSplitRun).where(
+            DxfSplitRun.job_id == job.id,
+            DxfSplitRun.job_attempt == attempt,
+        )
+    )
+    if run is None:
+        run = DxfSplitRun(
+            workflow_run_id=workflow.id,
+            project_id=workflow.project_id,
+            classification_run_id=classification_run_id,
+            job_id=job.id,
+            job_attempt=attempt,
+            status="running",
+            splitter_version=PL_SPLITTER_VERSION,
+            input_manifest_sha256=manifest_sha256,
+            input_count=input_count,
+            source_contracts_json={"PL": PL_SOURCE_CONTRACT_ID},
+            started_at=business_now(),
+        )
+        db.add(run)
+        db.commit()
+    elif (
+        run.workflow_run_id != workflow.id
+        or run.project_id != workflow.project_id
+        or run.classification_run_id != classification_run_id
+        or run.input_manifest_sha256 != manifest_sha256
+        or run.input_count != input_count
+        or run.splitter_version != PL_SPLITTER_VERSION
+        or run.source_contracts_json != {"PL": PL_SOURCE_CONTRACT_ID}
+    ):
+        raise PlSplitError("已存在的 PL 拆板 attempt 与当前冻结输入不一致。")
+    return run
+
+
+PL_XBOX_COMBINED_SPLITTER_VERSION = f"pl-{PL_SPLITTER_VERSION};xbox-{XBOX_SPLITTER_VERSION}"
+PL_XBOX_SOURCE_CONTRACTS = {"PL": PL_SOURCE_CONTRACT_ID, "XBOX": XBOX_SOURCE_CONTRACT_ID}
+PL_XBOX_VALIDATION_SCHEMA = "DWG-AGENT-PL-XBOX-SPLIT-VALIDATION-1.0"
+PL_XBOX_MANIFEST_SCHEMA = "DWG-AGENT-PL-XBOX-SPLIT-MANIFEST-1.0"
+PL_XBOX_LEDGER_SCHEMA = "DWG-AGENT-PL-XBOX-SPLIT-LEDGER-1.0"
+PL_XBOX_COMBINED_CLI_SCHEMA = f"pl:{PL_REPORT_SCHEMA};xbox:{XBOX_REPORT_SCHEMA}"
+
+
+def get_or_create_pl_xbox_split_run(
+    db: Session,
+    *,
+    job: Job,
+    workflow: WorkflowRun,
+    classification_run_id: int,
+    attempt: int,
+    manifest_sha256: str,
+    input_count: int,
+) -> DxfSplitRun:
+    """One merged run per (job, attempt) covering both PL and XBOX families."""
+    run = db.scalar(
+        select(DxfSplitRun).where(
+            DxfSplitRun.job_id == job.id,
+            DxfSplitRun.job_attempt == attempt,
+        )
+    )
+    if run is None:
+        run = DxfSplitRun(
+            workflow_run_id=workflow.id,
+            project_id=workflow.project_id,
+            classification_run_id=classification_run_id,
+            job_id=job.id,
+            job_attempt=attempt,
+            status="running",
+            splitter_version=PL_XBOX_COMBINED_SPLITTER_VERSION,
+            input_manifest_sha256=manifest_sha256,
+            input_count=input_count,
+            source_contracts_json=dict(PL_XBOX_SOURCE_CONTRACTS),
+            started_at=business_now(),
+        )
+        db.add(run)
+        db.commit()
+    elif (
+        run.workflow_run_id != workflow.id
+        or run.project_id != workflow.project_id
+        or run.classification_run_id != classification_run_id
+        or run.input_manifest_sha256 != manifest_sha256
+        or run.input_count != input_count
+        or run.splitter_version != PL_XBOX_COMBINED_SPLITTER_VERSION
+        or run.source_contracts_json != PL_XBOX_SOURCE_CONTRACTS
+    ):
+        raise PlSplitError("已存在的 PL/XBOX 拆板 attempt 与当前冻结输入不一致。")
+    return run
+
+
 def load_split_run(db: Session, *, job_id: int, attempt: int) -> DxfSplitRun:
     run = db.scalar(
         select(DxfSplitRun).where(
@@ -132,6 +243,7 @@ def persist_split_output(
     path: Path,
     batch_name: str,
     content_type: str,
+    storage_stage: str = "drawing-processing",
 ) -> StoredFile:
     relative = PurePosixPath(relative_path)
     if relative.is_absolute() or ".." in relative.parts:
@@ -142,9 +254,9 @@ def persist_split_output(
         if path.suffix.casefold() == ".dxf"
         else settings.minio_bucket_reports
     )
-    storage_key = (
-        f"workflows/{workflow_id}/drawing-processing/attempt-{attempt}/{relative.as_posix()}"
-    )
+    if storage_stage not in {"drawing-processing", "pl-xbox-split"}:
+        raise DxfSplitError("拆板产物存储阶段无效。")
+    storage_key = f"workflows/{workflow_id}/{storage_stage}/attempt-{attempt}/{relative.as_posix()}"
     transfer_uid = prepare_generated_file_transfer(
         db,
         actor_user_id=job.created_by,
@@ -260,6 +372,105 @@ def record_split_item(
     return item
 
 
+def record_pl_split_item(
+    db: Session,
+    *,
+    run: DxfSplitRun,
+    validated: ValidatedSplitItem,
+    normal_file: StoredFile | None = None,
+    item_report_file: StoredFile | None = None,
+) -> DxfSplitItem:
+    semantic = validated.source.semantic
+    classifier_confirmed = (
+        semantic.classification_disposition == "classified"
+        and semantic.part_type == "PL"
+        and validated.family == "PL"
+    )
+    item = DxfSplitItem(
+        run=run,
+        classification_item_id=semantic.classification_item_id,
+        drawing_id=semantic.drawing_id,
+        source_file_id=semantic.output_file_id,
+        source_name=validated.source.source_name,
+        classification_disposition=semantic.classification_disposition,
+        classification_part_type=semantic.part_type,
+        type_resolution="classifier_confirmed" if classifier_confirmed else "unresolved",
+        part_type="PL",
+        profile_normalized=semantic.profile_normalized,
+        family="PL",
+        source_contract_id=PL_SOURCE_CONTRACT_ID,
+        automation_route=validated.automation_route,
+        disposition=validated.disposition,
+        normal_dxf_file_id=normal_file.id if normal_file is not None else None,
+        weld_allowance_dxf_file_id=None,
+        split_report_file_id=(item_report_file.id if item_report_file is not None else None),
+        weld_allowance_report_file_id=None,
+        candidate_normal_dxf_file_id=None,
+        candidate_weld_allowance_dxf_file_id=None,
+        candidate_split_report_file_id=None,
+        candidate_weld_allowance_report_file_id=None,
+        diagnostics_json=list(validated.diagnostics),
+        validation_json=validated.validation,
+    )
+    db.add(item)
+    db.flush()
+    return item
+
+
+def record_xbox_split_item(
+    db: Session,
+    *,
+    run: DxfSplitRun,
+    validated: ValidatedSplitItem,
+    normal_file: StoredFile | None = None,
+    weld_allowance_file: StoredFile | None = None,
+    item_report_file: StoredFile | None = None,
+    weld_allowance_report_file: StoredFile | None = None,
+) -> DxfSplitItem:
+    """Persist one XBOX pair; unlike PL both artifacts are registered."""
+    semantic = validated.source.semantic
+    classifier_confirmed = (
+        semantic.classification_disposition == "classified"
+        and semantic.part_type == "XBOX"
+        and validated.family == "XBOX"
+    )
+    item = DxfSplitItem(
+        run=run,
+        classification_item_id=semantic.classification_item_id,
+        drawing_id=semantic.drawing_id,
+        source_file_id=semantic.output_file_id,
+        source_name=validated.source.source_name,
+        classification_disposition=semantic.classification_disposition,
+        classification_part_type=semantic.part_type,
+        type_resolution="classifier_confirmed" if classifier_confirmed else "unresolved",
+        part_type="XBOX",
+        profile_normalized=semantic.profile_normalized,
+        family="XBOX",
+        source_contract_id=XBOX_SOURCE_CONTRACT_ID,
+        automation_route=validated.automation_route,
+        disposition=validated.disposition,
+        normal_dxf_file_id=normal_file.id if normal_file is not None else None,
+        weld_allowance_dxf_file_id=(
+            weld_allowance_file.id if weld_allowance_file is not None else None
+        ),
+        split_report_file_id=(item_report_file.id if item_report_file is not None else None),
+        weld_allowance_report_file_id=(
+            weld_allowance_report_file.id
+            if weld_allowance_report_file is not None
+            else None
+        ),
+        candidate_normal_dxf_file_id=None,
+        candidate_weld_allowance_dxf_file_id=None,
+        candidate_split_report_file_id=None,
+        candidate_weld_allowance_report_file_id=None,
+        diagnostics_json=list(validated.diagnostics),
+        validation_json=validated.validation,
+    )
+    db.add(item)
+    db.flush()
+    return item
+
+
 def record_split_analysis(
     db: Session,
     *,
@@ -294,6 +505,50 @@ def record_split_analysis(
     return analysis
 
 
+def record_pl_split_analysis(
+    db: Session,
+    *,
+    job: Job,
+    workflow_id: int,
+    run: DxfSplitRun,
+    manifest_file: StoredFile,
+    validation_file: StoredFile,
+) -> AnalysisResult:
+    analysis = AnalysisResult(
+        job_id=job.id,
+        result_type=TASK_PL_DXF_SPLIT,
+        result_json={
+            "workflow_id": workflow_id,
+            "run_id": run.id,
+            "job_attempt": job.attempt,
+            "workflow_artifact_type": "split_manifest",
+            "status": run.status,
+            "input_count": run.input_count,
+            "auto_accepted_count": run.auto_accepted_count,
+            "manual_review_count": run.manual_review_count,
+            "xbox_auto_accepted_count": sum(
+                1
+                for item in run.items
+                if item.family == "XBOX" and item.automation_route == "auto_accepted"
+            ),
+            "xbox_manual_review_count": sum(
+                1
+                for item in run.items
+                if item.family == "XBOX" and item.automation_route == "manual_review"
+            ),
+            "validation_report_file_id": validation_file.id,
+        },
+        confidence=Decimal("1.0000"),
+        result_file_id=manifest_file.id,
+        algorithm_version=PL_SPLITTER_VERSION,
+        tool_version="steel-dxf-split-pl",
+        status="succeeded",
+    )
+    db.add(analysis)
+    db.flush()
+    return analysis
+
+
 def finish_split_run(
     run: DxfSplitRun,
     *,
@@ -317,6 +572,64 @@ def finish_split_run(
     run.error_code = None
     run.error_message = None
     run.finished_at = business_now()
+
+
+def finish_pl_split_run(
+    run: DxfSplitRun,
+    *,
+    auto_accepted_count: int,
+    manual_review_count: int,
+    failed_count: int,
+    ledger_file: StoredFile,
+    manifest_file: StoredFile,
+    validation_file: StoredFile,
+) -> None:
+    run.status = "completed_with_review" if manual_review_count else "completed"
+    run.cli_schema = PL_XBOX_COMBINED_CLI_SCHEMA
+    run.validation_schema = PL_XBOX_VALIDATION_SCHEMA
+    run.auto_accepted_count = auto_accepted_count
+    run.manual_review_count = manual_review_count
+    run.failed_count = failed_count
+    run.processed_count = run.input_count
+    run.bh_split_ledger_file_id = ledger_file.id
+    run.split_manifest_file_id = manifest_file.id
+    run.validation_report_file_id = validation_file.id
+    run.error_code = None
+    run.error_message = None
+    run.finished_at = business_now()
+
+
+def mark_pl_split_failed(db: Session, job_id: int, attempt: int, exc: Exception) -> None:
+    if isinstance(exc, OSError) and exc.errno in {
+        errno.ENOSPC,
+        getattr(errno, "EDQUOT", -1),
+    }:
+        error_code = "PL_DXF_SPLIT_STORAGE_FULL"
+        message = "服务器 PL 拆板工作空间不足，请联系管理员清理存储后重试。"
+    elif isinstance(exc, (PlSplitError, DxfSplitError)):
+        error_code = "PL_DXF_SPLIT_FAILED"
+        message = str(exc) or exc.__class__.__name__
+    else:
+        error_code = "PL_DXF_SPLIT_FAILED"
+        message = exc.__class__.__name__
+    run = db.scalar(
+        select(DxfSplitRun).where(
+            DxfSplitRun.job_id == job_id,
+            DxfSplitRun.job_attempt == attempt,
+        )
+    )
+    if run is not None:
+        run.status = "failed"
+        run.error_code = error_code
+        run.error_message = message
+        run.finished_at = business_now()
+    fail_job_attempt(
+        db,
+        job_id,
+        attempt=attempt,
+        error_code=error_code,
+        error_message=message,
+    )
 
 
 def mark_split_failed(db: Session, job_id: int, attempt: int, exc: Exception) -> None:
@@ -440,6 +753,22 @@ def latest_split_run(db: Session, workflow_id: int) -> DxfSplitRun | None:
         .where(DxfSplitRun.workflow_run_id == workflow_id)
         .options(selectinload(DxfSplitRun.items))
         .order_by(DxfSplitRun.job_attempt.desc(), DxfSplitRun.id.desc())
+    )
+
+
+def split_run_for_job(
+    db: Session,
+    *,
+    job_id: int,
+    attempt: int,
+) -> DxfSplitRun | None:
+    return db.scalar(
+        select(DxfSplitRun)
+        .where(
+            DxfSplitRun.job_id == job_id,
+            DxfSplitRun.job_attempt == attempt,
+        )
+        .options(selectinload(DxfSplitRun.items))
     )
 
 

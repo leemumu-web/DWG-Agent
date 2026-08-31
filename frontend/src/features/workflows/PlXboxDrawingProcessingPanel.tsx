@@ -168,11 +168,10 @@ interface Props {
   onChanged: () => void;
 }
 
-const PL_XBOX_FAMILIES = ['PL', 'XBOX'] as const;
+const IMPLEMENTED_FAMILIES = ['PL', 'XBOX'] as const;
 
-/** 按工程族统计自动接纳数量，PL（板件）与 XBOX（箱型）分开、不混并。 */
 function familyAcceptedCounts(items: PlXboxSplitItem[]) {
-  return PL_XBOX_FAMILIES.map((family) => ({
+  return IMPLEMENTED_FAMILIES.map((family) => ({
     family,
     accepted: items.filter(
       (item) => item.family === family && item.automation_route === 'auto_accepted',
@@ -244,20 +243,20 @@ export function PlXboxDrawingProcessingPanel({
       await queryClient.invalidateQueries({
         queryKey: ['workflow', workflowId],
       });
-      message.success('整批 PL / XBOX 拆板任务已提交');
+      message.success('整批 PL 拆板任务已提交');
       onChanged();
     },
     onError: (error) => {
-      message.error(describeApiError(error, 'PL / XBOX 拆板任务提交失败'));
+      message.error(describeApiError(error, 'PL 拆板任务提交失败'));
       onChanged();
     },
   });
   const splitResultsDownload = useNativeWorkflowDownload({
     workflowId,
-    categories: ['split_result_normal', 'split_result_allowance'],
-    preparingText: '浏览器已开始接收 PL / XBOX 拆板结果 ZIP，可继续操作页面',
-    completedText: 'PL / XBOX 拆板结果 ZIP 已由服务器完整发送',
-    errorText: 'PL / XBOX 拆板正式结果压缩包下载失败',
+    categories: ['split_result_normal'],
+    preparingText: '浏览器已开始接收 PL 拆板结果 ZIP，可继续操作页面',
+    completedText: 'PL 拆板结果 ZIP 已由服务器完整发送',
+    errorText: 'PL 拆板正式结果压缩包下载失败',
   });
   const allDrawingsDownload = useNativeWorkflowDownload({
     workflowId,
@@ -302,9 +301,9 @@ export function PlXboxDrawingProcessingPanel({
     >
       {runQ.isError && (
         <ApiErrorAlert
-          title="PL / XBOX 拆板批次读取失败"
+          title="PL 拆板批次读取失败"
           error={runQ.error}
-          fallback="PL / XBOX 拆板批次读取失败"
+          fallback="PL 拆板批次读取失败"
           retryLabel="重新读取"
           retryLoading={runQ.isFetching}
           onRetry={() => runQ.refetch()}
@@ -315,8 +314,8 @@ export function PlXboxDrawingProcessingPanel({
         <Alert
           type="info"
           showIcon
-          message="PL / XBOX 拆板输入已就绪"
-          description="拆板器当前只处理数据库中已明确分类为 PL 或 XBOX 的图纸。BH、BOX 和其他类型保留分类标注，本节点暂不拆板，也不会阻塞 PL/XBOX 批次。"
+          message="PL 拆板输入已就绪"
+          description="拆板器处理数据库中已明确分类为 PL 与 XBOX 的图纸；BH、BOX 和其他类型继续走各自阶段。"
           action={(
             <Button
               type="primary"
@@ -324,7 +323,7 @@ export function PlXboxDrawingProcessingPanel({
               loading={executeM.isPending}
               onClick={() => executeM.mutate()}
             >
-              开始整批 PL / XBOX 拆板
+              开始整批 PL 拆板
             </Button>
           )}
         />
@@ -334,7 +333,7 @@ export function PlXboxDrawingProcessingPanel({
         <Alert
           type="info"
           showIcon
-          message={`PL / XBOX 拆板任务${stage?.job_id ? ` #${stage.job_id}` : ''}正在执行`}
+          message={`PL 拆板任务${stage?.job_id ? ` #${stage.job_id}` : ''}正在执行`}
           description={(
             <div className="workflow-dxf-split-progress">
               <Progress percent={progressPercent} status="active" />
@@ -383,7 +382,7 @@ export function PlXboxDrawingProcessingPanel({
           <div className="workflow-dxf-split-command">
             <div>
               <Typography.Text strong>
-                Steel DXF Split {run.splitter_version}
+                Steel DXF Split PL {run.splitter_version}
               </Typography.Text>
               <Typography.Text type="secondary">
                 尝试 #{run.job.attempt} · 输入清单 {run.input_manifest_sha256.slice(0, 12)}…
@@ -402,7 +401,7 @@ export function PlXboxDrawingProcessingPanel({
               ['分类总数', run.classification_input_count],
               ['进入拆板', run.input_count],
               ['仅分类未拆', run.classification_only_count],
-              ['正式配对图纸', run.auto_accepted_count],
+              ['正式结果图纸', run.auto_accepted_count],
               ['未形成结果', unformedCount],
             ].map(([label, value]) => (
               <div key={label}>
@@ -425,14 +424,14 @@ export function PlXboxDrawingProcessingPanel({
             <Alert
               type="success"
               showIcon
-              message="本批次 PL / XBOX 拆板与独立校验已全部通过"
+              message="本批次 PL 拆板与独立校验已全部通过"
               description={(
                 <Space orientation="vertical" size={2}>
                   <Typography.Text>
-                    {familyAccepted.map(({ family, accepted }) => `${family} 正式配对 ${accepted} 张`).join(' · ')}
+                    {familyAccepted.map(({ family, accepted }) => `${family} 正式结果 ${accepted} 张`).join(' · ')}
                   </Typography.Text>
                   <Typography.Text type="secondary">
-                    本次进入拆板的 PL/XBOX 均已通过独立校验；其他类型只保留分类标注，不包含在拆板结果中。
+                    PL 每图产出原长 DXF（单产物）；XBOX 每图产出原长与焊接余量成对 DXF。
                   </Typography.Text>
                 </Space>
               )}
@@ -460,11 +459,11 @@ export function PlXboxDrawingProcessingPanel({
               <Alert
                 type="warning"
                 showIcon
-                message={`${run.input_count} 张均已处理：${run.auto_accepted_count} 张形成正式配对结果，${unformedCount} 张未形成`}
+                message={`${run.input_count} 张均已处理：${run.auto_accepted_count} 张形成 PL 正式结果，${unformedCount} 张未形成`}
                 description={(
                   <Space orientation="vertical" size={2}>
                     <Typography.Text>
-                      {familyAccepted.map(({ family, accepted }) => `${family} 正式配对 ${accepted} 张`).join(' · ')}
+                      {familyAccepted.map(({ family, accepted }) => `${family} 正式结果 ${accepted} 张`).join(' · ')}
                     </Typography.Text>
                     {unformedReasons.map((reason) => (
                       <Typography.Text key={reason}>{reason}</Typography.Text>
