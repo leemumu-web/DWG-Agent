@@ -24,13 +24,16 @@ import {
 } from '../../shared/api';
 import { ApiErrorAlert, CancellableDownloadProgress } from '../../shared/components';
 import type {
+  PlXboxSelectiveExport,
   PlXboxSplitItem,
   WorkflowBatchExport,
   WorkflowExportCategory,
   WorkflowStage,
 } from './workflow';
 import {
+  createPlXboxSelectiveExport,
   createWorkflowBatchExport,
+  downloadPlXboxSelectiveExport,
   downloadWorkflowBatchExport,
   executeWorkflowStage,
   getPlXboxSplitRun,
@@ -161,6 +164,60 @@ function useNativeWorkflowDownload({
   };
 }
 
+function usePlManualReviewDownload({
+  workflowId,
+  runId,
+}: {
+  workflowId: number;
+  runId?: number;
+}) {
+  const { message } = App.useApp();
+  const downloadCtrl = useDownload();
+  const [progress, setProgress] = useState<TransferProgress | null>(null);
+  const downloadM = useMutation({
+    mutationFn: (prepared: PlXboxSelectiveExport) => {
+      const handle = downloadCtrl.start();
+      return downloadPlXboxSelectiveExport(prepared, setProgress, handle.signal)
+        .finally(handle.finish);
+    },
+    onSuccess: () => message.success('PL 拆板失败图纸 ZIP 已下载，可交人工处理'),
+    onError: (error) => {
+      const result = describeDownloadError(error, 'PL 拆板失败图纸压缩包下载失败');
+      setProgress(null);
+      if (result.cancelled) {
+        message.info('下载已取消，可重新下载');
+      } else {
+        message.error(result.message);
+      }
+    },
+  });
+  const createM = useMutation({
+    mutationFn: () => {
+      if (runId === undefined) throw new Error('当前 PL 拆板批次尚未生成');
+      return createPlXboxSelectiveExport(workflowId, runId, ['failed_pl']);
+    },
+    onSuccess: (prepared) => {
+      setProgress(null);
+      message.info('浏览器已开始接收拆板失败图纸 ZIP，可继续操作页面');
+      downloadM.mutate(prepared);
+    },
+    onError: (error) => message.error(
+      describeApiError(error, 'PL 拆板失败图纸导出创建失败'),
+    ),
+  });
+  return {
+    start: () => createM.mutate(),
+    loading: createM.isPending || downloadM.isPending,
+    failed: createM.isError || downloadM.isError,
+    progress,
+    cancel: () => {
+      downloadCtrl.cancel();
+      setProgress(null);
+    },
+    active: downloadCtrl.active,
+  };
+}
+
 interface Props {
   workflowId: number;
   stage?: WorkflowStage;
@@ -258,16 +315,20 @@ export function PlXboxDrawingProcessingPanel({
     completedText: 'PL 拆板结果 ZIP 已由服务器完整发送',
     errorText: 'PL 拆板正式结果压缩包下载失败',
   });
-  const allDrawingsDownload = useNativeWorkflowDownload({
+  const manualReviewDownload = usePlManualReviewDownload({
     workflowId,
-    categories: ['classified_dxf'],
-    preparingText: '浏览器已开始接收本批原图 ZIP，可继续操作页面',
-    completedText: '本批原图 ZIP 已由服务器完整发送',
-    errorText: '本批原图压缩包下载失败',
+    runId: run?.id,
   });
   const processedCount = run?.processed_count ?? 0;
   const unformedCount = run
     ? Math.max(0, run.input_count - run.auto_accepted_count)
+    : 0;
+  const failedPlCount = run
+    ? run.items.filter(
+      (item) => item.automation_route === 'manual_review'
+        && item.classification_part_type === 'PL'
+        && item.family === 'PL',
+    ).length
     : 0;
   const unformedReasons = run
     ? Array.from(new Set(
@@ -441,15 +502,22 @@ export function PlXboxDrawingProcessingPanel({
                     type="primary"
                     icon={<DownloadOutlined />}
                     loading={splitResultsDownload.loading}
-                    disabled={run.auto_accepted_count === 0 || allDrawingsDownload.active}
+                    disabled={run.auto_accepted_count === 0 || manualReviewDownload.loading}
                     onClick={splitResultsDownload.start}
                   >
-                    {splitResultsDownload.failed ? '重试拆板结果 ZIP' : '下载拆板结果 ZIP'}
+                    {splitResultsDownload.failed
+                      ? '重试拆板成功图纸 ZIP'
+                      : '下载拆板成功图纸 ZIP'}
                   </Button>
-                  <Button icon={<DownloadOutlined />} loading={allDrawingsDownload.loading} disabled={splitResultsDownload.active} onClick={allDrawingsDownload.start}>
-                    {allDrawingsDownload.failed
-                      ? '重试本批原图 ZIP'
-                      : '下载本批原图 ZIP（不含拆板成品）'}
+                  <Button
+                    icon={<DownloadOutlined />}
+                    loading={manualReviewDownload.loading}
+                    disabled={failedPlCount === 0 || splitResultsDownload.loading}
+                    onClick={manualReviewDownload.start}
+                  >
+                    {manualReviewDownload.failed
+                      ? '重试拆板失败图纸 ZIP（人工处理）'
+                      : '下载拆板失败图纸 ZIP（人工处理）'}
                   </Button>
                 </Space>
               )}
@@ -469,7 +537,7 @@ export function PlXboxDrawingProcessingPanel({
                       <Typography.Text key={reason}>{reason}</Typography.Text>
                     ))}
                     <Typography.Text type="secondary">
-                      未形成结果的图纸不进入正式拆板 ZIP；本批原图包保留全部分类图纸，可供线下处理。
+                      未形成结果的图纸不进入成功 ZIP；未通过的 PL 原图可单独下载并交人工处理。
                     </Typography.Text>
                   </Space>
                 )}
@@ -479,15 +547,22 @@ export function PlXboxDrawingProcessingPanel({
                       type="primary"
                       icon={<DownloadOutlined />}
                       loading={splitResultsDownload.loading}
-                      disabled={run.auto_accepted_count === 0 || allDrawingsDownload.active}
+                      disabled={run.auto_accepted_count === 0 || manualReviewDownload.loading}
                       onClick={splitResultsDownload.start}
                     >
-                      {splitResultsDownload.failed ? '重试拆板结果 ZIP' : '下载拆板结果 ZIP'}
+                      {splitResultsDownload.failed
+                        ? '重试拆板成功图纸 ZIP'
+                        : '下载拆板成功图纸 ZIP'}
                     </Button>
-                    <Button icon={<DownloadOutlined />} loading={allDrawingsDownload.loading} disabled={splitResultsDownload.active} onClick={allDrawingsDownload.start}>
-                      {allDrawingsDownload.failed
-                        ? '重试本批原图 ZIP'
-                        : '下载本批原图 ZIP（不含拆板成品）'}
+                    <Button
+                      icon={<DownloadOutlined />}
+                      loading={manualReviewDownload.loading}
+                      disabled={failedPlCount === 0 || splitResultsDownload.loading}
+                      onClick={manualReviewDownload.start}
+                    >
+                      {manualReviewDownload.failed
+                        ? '重试拆板失败图纸 ZIP（人工处理）'
+                        : '下载拆板失败图纸 ZIP（人工处理）'}
                     </Button>
                   </Space>
                 )}
@@ -502,12 +577,12 @@ export function PlXboxDrawingProcessingPanel({
               onCancel={splitResultsDownload.cancel}
             />
           )}
-          {allDrawingsDownload.progress && (
+          {manualReviewDownload.progress && (
             <CancellableDownloadProgress
-              label="本批原图下载"
-              progress={allDrawingsDownload.progress}
-              active={allDrawingsDownload.active}
-              onCancel={allDrawingsDownload.cancel}
+              label="拆板失败图纸下载（人工处理）"
+              progress={manualReviewDownload.progress}
+              active={manualReviewDownload.active}
+              onCancel={manualReviewDownload.cancel}
             />
           )}
           {run.items.length > 0 && (
